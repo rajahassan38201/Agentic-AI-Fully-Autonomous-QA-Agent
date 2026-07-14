@@ -32,7 +32,7 @@ class TestRun(Base):
     id = Column(String, primary_key=True, default=_uuid)
     target_url = Column(String, nullable=False)
     goals = Column(Text, nullable=True)
-    status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed
+    status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed|stopped
     summary = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     steps_count = Column(Integer, nullable=False, default=0)

@@ -19,6 +19,11 @@ RUN_SECRETS: dict[str, dict] = {}
 # serves the most recent frame so the UI can show the headless browser live.
 LIVE_FRAMES: dict[str, bytes] = {}
 
+# Run ids the user has asked to stop. The worker thread checks this set
+# cooperatively and finishes cleanly (saving everything) rather than failing.
+# `set` add/discard/membership are atomic under CPython's GIL, so no lock needed.
+STOP_REQUESTS: set[str] = set()
+
 _client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 
@@ -163,8 +168,12 @@ def run_test_job(run_id: str) -> None:
         max_steps = int(cfg.get("max_steps", 100))
         final_summary = None
         hit_limit = False
+        stopped = False
 
         while True:
+            if run_id in STOP_REQUESTS:
+                stopped = True
+                break
             if step_index >= max_steps:
                 hit_limit = True
                 break
@@ -233,18 +242,34 @@ def run_test_job(run_id: str) -> None:
                     result_block["is_error"] = True
                 tool_results.append(result_block)
 
+                # Honour a stop request mid-turn so a long tool sequence halts promptly.
+                if run_id in STOP_REQUESTS:
+                    stopped = True
+                    break
+
             messages.append({"role": "user", "content": tool_results})
+
+            if stopped:
+                break
 
             # Safety net: if a turn recorded no new steps, stop rather than loop forever.
             if step_index == steps_before:
                 break
 
-        if hit_limit:
-            final_summary = (final_summary or "") + "\n(Reached the maximum step limit; testing stopped.)"
+        if stopped:
+            run.status = "stopped"
+            final_summary = (
+                "Stopped by user.\n\n"
+                "Testing was stopped before completion. All progress, activity, and "
+                "findings recorded up to this point have been saved."
+            )
+        else:
+            run.status = "completed"
+            if hit_limit:
+                final_summary = (final_summary or "") + "\n(Reached the maximum step limit; testing stopped.)"
 
         run.steps_count = step_index
         run.summary = final_summary or "Test run completed."
-        run.status = "completed"
         run.finished_at = _now()
         db.commit()
 
@@ -279,4 +304,5 @@ def run_test_job(run_id: str) -> None:
                 db.rollback()
         RUN_SECRETS.pop(run_id, None)
         LIVE_FRAMES.pop(run_id, None)
+        STOP_REQUESTS.discard(run_id)
         db.close()

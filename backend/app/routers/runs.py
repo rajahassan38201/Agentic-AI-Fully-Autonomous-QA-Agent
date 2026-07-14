@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..config import MODEL as DEFAULT_MODEL
-from ..agent.runner import LIVE_FRAMES, RUN_SECRETS, run_test_job
+from ..agent.runner import LIVE_FRAMES, RUN_SECRETS, STOP_REQUESTS, run_test_job
 from ..database import SessionLocal
 from ..models import Finding, Step, TestRun
  
@@ -72,6 +72,18 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
     return run
 
 
+@router.post("/runs/{run_id}/stop", response_model=schemas.RunOut)
+def stop_run(run_id: str, db: Session = Depends(get_db)):
+    """Ask a running run to stop. The worker finishes cleanly and saves everything;
+    this is not a failure. No-op if the run already finished."""
+    run = db.get(TestRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.status in ("pending", "running"):
+        STOP_REQUESTS.add(run_id)
+    return run
+
+
 @router.delete("/runs/{run_id}", status_code=204)
 def delete_run(run_id: str, db: Session = Depends(get_db)):
     """Delete a run and, via cascade, all of its findings and steps."""
@@ -83,6 +95,7 @@ def delete_run(run_id: str, db: Session = Depends(get_db)):
     # Drop any in-memory state for a run that may still be executing.
     RUN_SECRETS.pop(run_id, None)
     LIVE_FRAMES.pop(run_id, None)
+    STOP_REQUESTS.discard(run_id)
 
 
 @router.get("/runs/{run_id}/preview")

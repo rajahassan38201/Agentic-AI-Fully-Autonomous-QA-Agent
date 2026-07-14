@@ -34,6 +34,13 @@ export async function getSteps(id) {
   return jsonOrThrow(await fetch(`${API}/runs/${id}/steps`))
 }
 
+// Ask a running run to stop. It finishes cleanly and saves everything —
+// this is not a failure.
+export async function stopRun(id) {
+  const res = await fetch(`${API}/runs/${id}/stop`, { method: 'POST' })
+  return jsonOrThrow(res)
+}
+
 export async function deleteRun(id) {
   const res = await fetch(`${API}/runs/${id}`, { method: 'DELETE' })
   if (!res.ok) {

@@ -413,6 +413,7 @@ body {
 @keyframes shimmer { to { transform: translateX(100%); } }
 .badge-completed { background: rgba(5, 150, 105, 0.14); color: var(--ok); }
 .badge-failed { background: rgba(239, 68, 68, 0.14); color: var(--crit); }
+.badge-stopped { background: rgba(217, 119, 6, 0.15); color: #b45309; }
 
 /* ============================ Empty state ============================ */
 .empty {
@@ -457,6 +458,34 @@ body {
   letter-spacing: -0.01em;
 }
 .detail-sub { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+
+/* Stop-run control — sits at the top-right of the detail header while running. */
+.stop-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  box-shadow: 0 8px 20px -8px rgba(225, 29, 72, 0.6);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.stop-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 26px -8px rgba(225, 29, 72, 0.7); }
+.stop-btn:active { transform: translateY(0) scale(0.97); }
+.stop-btn:disabled { opacity: 0.75; cursor: default; transform: none; box-shadow: none; }
+.stop-btn svg { width: 15px; height: 15px; }
+.spinner-light {
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+}
 .goals {
   color: var(--text);
   background: var(--panel);

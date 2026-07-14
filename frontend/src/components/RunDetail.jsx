@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getFindings, getRun, getSteps, previewUrl, videoUrl } from '../api.js'
+import { getFindings, getRun, getSteps, previewUrl, videoUrl, stopRun } from '../api.js'
 import FindingCard from './FindingCard.jsx'
 import StepLog from './StepLog.jsx'
 
@@ -16,6 +16,14 @@ function fmtCost(c) {
   return '$' + n.toFixed(2)
 }
 
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  )
+}
+
 export default function RunDetail({ runId }) {
   const [run, setRun] = useState(null)
   const [findings, setFindings] = useState([])
@@ -23,6 +31,7 @@ export default function RunDetail({ runId }) {
   const [tab, setTab] = useState('findings')
   const [previewTick, setPreviewTick] = useState(0)
   const [previewOk, setPreviewOk] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const timer = useRef(null)
 
   useEffect(() => {
@@ -39,7 +48,7 @@ export default function RunDetail({ runId }) {
         setRun(r)
         setFindings(f)
         setSteps(s)
-        const done = r.status === 'completed' || r.status === 'failed'
+        const done = r.status === 'completed' || r.status === 'failed' || r.status === 'stopped'
         if (done && timer.current) {
           clearInterval(timer.current)
           timer.current = null
@@ -53,6 +62,7 @@ export default function RunDetail({ runId }) {
     setFindings([])
     setSteps([])
     setPreviewOk(false)
+    setStopping(false)
     poll()
     timer.current = setInterval(poll, 2000)
     return () => {
@@ -82,6 +92,20 @@ export default function RunDetail({ runId }) {
     (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity)
   )
 
+  const handleStop = async () => {
+    if (stopping) return
+    if (!window.confirm('Stop this run now? Progress, activity, and findings so far will be saved.')) {
+      return
+    }
+    setStopping(true)
+    try {
+      await stopRun(runId)
+    } catch (e) {
+      console.error(e)
+      setStopping(false)
+    }
+  }
+
   const tabs = [
     { key: 'findings', label: `Findings (${findings.length})` },
     { key: 'steps', label: `Activity (${steps.length})` },
@@ -103,6 +127,25 @@ export default function RunDetail({ runId }) {
             </span>
           </div>
         </div>
+        {running && (
+          <button
+            type="button"
+            className="stop-btn"
+            onClick={handleStop}
+            disabled={stopping}
+            title="Stop this run and save everything so far"
+          >
+            {stopping ? (
+              <>
+                <span className="spinner spinner-light" /> Stopping…
+              </>
+            ) : (
+              <>
+                <StopIcon /> Stop run
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {run.goals && <p className="goals"><strong>Goals:</strong> {run.goals}</p>}
