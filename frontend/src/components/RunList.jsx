@@ -42,12 +42,14 @@ export default function RunList({ runs, selectedId, onSelect, onDelete }) {
             className={r.id === selectedId ? 'runitem active' : 'runitem'}
             onClick={() => onSelect(r.id)}
           >
-            <div className="runitem-top">
-              <span className="runitem-url">{hostname(r.target_url)}</span>
-              <span className={statusClass(r.status)}>{r.status}</span>
-            </div>
-            <div className="runitem-meta">
-              {r.steps_count} steps · {r.findings_count} findings
+            <div className="runitem-main">
+              <div className="runitem-top">
+                <span className="runitem-url">{hostname(r.target_url)}</span>
+                <span className={statusClass(r.status)}>{r.status}</span>
+              </div>
+              <div className="runitem-meta">
+                {r.steps_count} steps · {r.findings_count} findings
+              </div>
             </div>
             <button
               type="button"

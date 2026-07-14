@@ -316,7 +316,10 @@ body {
 /* ============================ Run list ============================ */
 .runlist { list-style: none; margin: 0; padding: 0; }
 .runitem {
-  padding: 12px 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   border: 1px solid transparent;
@@ -324,6 +327,7 @@ body {
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
   position: relative;
 }
+.runitem-main { flex: 1 1 auto; min-width: 0; }
 .runitem:hover {
   background: rgba(255, 255, 255, 0.7);
   transform: translateX(3px);
@@ -352,9 +356,7 @@ body {
 .runitem-meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
 .runitem-delete {
-  position: absolute;
-  right: 9px;
-  bottom: 9px;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: 30px;
@@ -366,14 +368,13 @@ body {
   color: var(--muted-2);
   cursor: pointer;
   opacity: 0;
-  transform: translateY(3px);
-  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease,
-    color 0.18s ease, border-color 0.18s ease;
+  transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease,
+    border-color 0.18s ease, transform 0.12s ease;
 }
 .runitem:hover .runitem-delete,
+.runitem.active .runitem-delete,
 .runitem-delete:focus-visible {
   opacity: 1;
-  transform: translateY(0);
 }
 .runitem-delete:hover {
   color: var(--crit);
@@ -381,7 +382,7 @@ body {
   border-color: rgba(239, 68, 68, 0.25);
 }
 .runitem-delete:focus-visible { outline: none; }
-.runitem-delete:active { transform: scale(0.9); }
+.runitem-delete:active { transform: scale(0.88); }
 .runitem-delete svg { width: 16px; height: 16px; }
 
 /* ============================ Badges ============================ */
@@ -522,11 +523,13 @@ body {
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow);
 }
-.preview-frame img {
+.preview-frame img,
+.preview-frame video {
   width: 100%;
   height: auto;
   display: block;
 }
+.preview-video { background: #0f172a; }
 .preview-empty {
   display: flex;
   flex-direction: column;

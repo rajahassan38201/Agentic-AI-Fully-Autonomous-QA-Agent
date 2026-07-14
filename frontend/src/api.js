@@ -47,3 +47,8 @@ export async function deleteRun(id) {
 export function previewUrl(id, tick) {
   return `${API}/runs/${id}/preview?t=${tick}`
 }
+
+// Recorded session video (.webm) for a finished run.
+export function videoUrl(id) {
+  return `${API}/runs/${id}/video`
+}

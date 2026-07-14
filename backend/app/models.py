@@ -2,9 +2,18 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 
 from .database import Base
 
@@ -35,6 +44,12 @@ class TestRun(Base):
     output_tokens = Column(Integer, nullable=False, default=0)
     cache_read_tokens = Column(Integer, nullable=False, default=0)
     cache_write_tokens = Column(Integer, nullable=False, default=0)
+
+    # Full session recording (.webm). `has_video` is a cheap flag so list/detail
+    # queries never pull the blob; `video` is deferred and loaded only when the
+    # /video endpoint reads it.
+    has_video = Column(Boolean, nullable=False, default=False)
+    video = deferred(Column(LargeBinary, nullable=True))
 
     created_at = Column(DateTime(timezone=True), default=_now)
     started_at = Column(DateTime(timezone=True), nullable=True)

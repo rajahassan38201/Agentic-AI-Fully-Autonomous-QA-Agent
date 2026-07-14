@@ -5,6 +5,9 @@ dedicated worker thread (never the FastAPI event loop), which is required for
 the sync API to work.
 """
 import json
+import os
+import shutil
+import tempfile
 
 from playwright.sync_api import sync_playwright
 
@@ -51,10 +54,18 @@ class BrowserSession:
         self.console_errors = []
         self.failed_requests = []
 
+        # Playwright records the whole session to a .webm here; we read the bytes
+        # back into the DB when the run ends, then delete this temp dir.
+        self._video_dir = tempfile.mkdtemp(prefix="qa_video_")
+
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch(headless=HEADLESS)
 
-        ctx_kwargs = {}
+        video_size = viewport or {"width": 1280, "height": 720}
+        ctx_kwargs = {
+            "record_video_dir": self._video_dir,
+            "record_video_size": video_size,
+        }
         if http_credentials:
             ctx_kwargs["http_credentials"] = http_credentials
         if viewport:
@@ -171,11 +182,47 @@ class BrowserSession:
             return None
 
     def close(self):
-        for fn in (self.context.close, self.browser.close, self._pw.stop):
+        """Tear down without collecting the video (used on error paths)."""
+        self.close_and_get_video()
+
+    def close_and_get_video(self):
+        """Close the browser and return the recorded session as .webm bytes.
+
+        Playwright only flushes the video file once the context is closed, so we
+        grab the path first, close, then read it back and clean up the temp dir.
+        Returns None if no video was recorded.
+        """
+        video_bytes = None
+        video_path = None
+        try:
+            if getattr(self, "page", None) and self.page.video:
+                video_path = self.page.video.path()
+        except Exception:
+            video_path = None
+
+        try:
+            self.context.close()  # finalizes the .webm file on disk
+        except Exception:
+            pass
+
+        try:
+            if video_path and os.path.exists(video_path):
+                with open(video_path, "rb") as fh:
+                    video_bytes = fh.read()
+        except Exception:
+            video_bytes = None
+
+        for fn in (self.browser.close, self._pw.stop):
             try:
                 fn()
             except Exception:
                 pass
+        try:
+            shutil.rmtree(self._video_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+        return video_bytes
 
 
 # Tool schemas advertised to Claude. `report_finding` is handled in the runner

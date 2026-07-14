@@ -98,6 +98,15 @@ def get_preview(run_id: str):
     )
 
 
+@router.get("/runs/{run_id}/video")
+def get_video(run_id: str, db: Session = Depends(get_db)):
+    """Return the full recorded session as a .webm video, or 204 if none."""
+    run = db.get(TestRun, run_id)
+    if run is None or not run.video:  # accessing .video lazily loads the blob
+        return Response(status_code=204)
+    return Response(content=run.video, media_type="video/webm")
+
+
 @router.get("/runs/{run_id}/findings", response_model=list[schemas.FindingOut])
 def get_findings(run_id: str, db: Session = Depends(get_db)):
     return (

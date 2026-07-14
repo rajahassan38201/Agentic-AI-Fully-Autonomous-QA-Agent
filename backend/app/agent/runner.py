@@ -260,7 +260,23 @@ def run_test_job(run_id: str) -> None:
         except Exception:
             pass
     finally:
+        # Close the browser, collect the recorded session video, and persist it.
+        video_bytes = None
         if browser is not None:
-            browser.close()
+            try:
+                video_bytes = browser.close_and_get_video()
+            except Exception:
+                video_bytes = None
+        if video_bytes:
+            try:
+                db.rollback()
+                run_row = db.get(TestRun, run_id)
+                if run_row is not None:
+                    run_row.video = video_bytes
+                    run_row.has_video = True
+                    db.commit()
+            except Exception:
+                db.rollback()
         RUN_SECRETS.pop(run_id, None)
+        LIVE_FRAMES.pop(run_id, None)
         db.close()

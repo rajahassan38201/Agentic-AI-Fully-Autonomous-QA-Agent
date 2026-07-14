@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getFindings, getRun, getSteps, previewUrl } from '../api.js'
+import { getFindings, getRun, getSteps, previewUrl, videoUrl } from '../api.js'
 import FindingCard from './FindingCard.jsx'
 import StepLog from './StepLog.jsx'
 
@@ -148,30 +148,45 @@ export default function RunDetail({ runId }) {
       {tab === 'preview' && (
         <div className="preview">
           <div className="preview-frame">
-            <img
-              src={previewUrl(runId, previewTick)}
-              alt="Live testing browser"
-              style={{ display: previewOk ? 'block' : 'none' }}
-              onLoad={() => setPreviewOk(true)}
-              onError={() => setPreviewOk(false)}
-            />
-            {!previewOk && (
+            {running ? (
+              <>
+                <img
+                  src={previewUrl(runId, previewTick)}
+                  alt="Live testing browser"
+                  style={{ display: previewOk ? 'block' : 'none' }}
+                  onLoad={() => setPreviewOk(true)}
+                  onError={() => setPreviewOk(false)}
+                />
+                {!previewOk && (
+                  <div className="preview-empty">
+                    <span className="spinner" />
+                    <p>Waiting for the browser to start…</p>
+                  </div>
+                )}
+                {previewOk && (
+                  <span className="preview-live"><span className="dot" /> Live</span>
+                )}
+              </>
+            ) : run.has_video ? (
+              <video
+                key={runId}
+                className="preview-video"
+                src={videoUrl(runId)}
+                controls
+                preload="metadata"
+              />
+            ) : (
               <div className="preview-empty">
-                {running && <span className="spinner" />}
-                <p>
-                  {running
-                    ? 'Waiting for the browser to start…'
-                    : 'No live preview available for this run.'}
-                </p>
+                <p>No recorded video is available for this run.</p>
               </div>
-            )}
-            {previewOk && running && (
-              <span className="preview-live"><span className="dot" /> Live</span>
             )}
           </div>
           <p className="muted preview-note">
-            The agent runs a real headless Chromium browser. This preview streams the latest
-            frame after each action so you can watch the test as it happens.
+            {running
+              ? 'The agent runs a real headless Chromium browser. This preview streams the latest frame after each action so you can watch the test live.'
+              : run.has_video
+              ? 'Recorded session — replay the entire test end to end without rerunning.'
+              : 'This run has no recorded video.'}
           </p>
         </div>
       )}

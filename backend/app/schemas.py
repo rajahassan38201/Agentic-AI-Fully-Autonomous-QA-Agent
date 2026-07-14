@@ -34,6 +34,7 @@ class RunOut(BaseModel):
     cache_write_tokens: int = 0
     total_tokens: int = 0
     cost_usd: float = 0.0
+    has_video: bool = False
     created_at: Optional[datetime]
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
