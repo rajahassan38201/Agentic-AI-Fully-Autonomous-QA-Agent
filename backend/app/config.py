@@ -17,6 +17,17 @@ MODEL = os.getenv("QA_MODEL", "claude-opus-4-8")
 # Reasoning effort for the agent loop: low | medium | high | xhigh | max
 EFFORT = os.getenv("QA_EFFORT", "high")
 
+# Models the user may pick per-run from the UI. Any value outside this list is
+# rejected by the API layer and falls back to MODEL.
+ALLOWED_MODELS = [
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+]
+
 
 # --- Pricing (USD per 1M tokens) ---
 # Used to give an approximate cost for a run from its token usage. Cache-write is

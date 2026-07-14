@@ -1,10 +1,20 @@
 import { useState } from 'react'
 import { createRun } from '../api.js'
 
+const MODELS = [
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-sonnet-5',
+  'claude-haiku-4-5',
+]
+
 const initial = {
   target_url: 'https://automationexercise.com/',
   goals: '',
   max_steps: 100,
+  model: MODELS[0],
   auth_type: 'none',
   username: '',
   password: '',
@@ -27,6 +37,7 @@ export default function NewRunForm({ onCreated }) {
         target_url: form.target_url.trim(),
         goals: form.goals.trim() || null,
         max_steps: Number(form.max_steps) || 100,
+        model: form.model,
         auth_type: form.auth_type,
         username: form.username || null,
         password: form.password || null,
@@ -59,6 +70,13 @@ export default function NewRunForm({ onCreated }) {
 
       <label>Max steps</label>
       <input type="number" min="5" max="5000" value={form.max_steps} onChange={update('max_steps')} />
+
+      <label>Select Model</label>
+      <select value={form.model} onChange={update('model')}>
+        {MODELS.map((m) => (
+          <option key={m} value={m}>{m}</option>
+        ))}
+      </select>
 
       <label>Authentication</label>
       <select value={form.auth_type} onChange={update('auth_type')}>

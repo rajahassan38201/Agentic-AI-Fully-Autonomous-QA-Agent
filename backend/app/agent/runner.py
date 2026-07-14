@@ -176,6 +176,8 @@ def run_test_job(run_id: str) -> None:
         # turn may perform several steps, so we bound on `step_index`, not on the
         # number of API round-trips.
         max_steps = int(cfg.get("max_steps", 100))
+        # The model is pinned per-run (chosen in the UI); fall back to the default.
+        model = cfg.get("model") or config.MODEL
         final_summary = None
         hit_limit = False
         stopped = False
@@ -189,14 +191,14 @@ def run_test_job(run_id: str) -> None:
                 break
 
             create_kwargs = {
-                "model": config.MODEL,
+                "model": model,
                 "max_tokens": MAX_TOKENS,
                 "system": SYSTEM_PROMPT,
                 "tools": TOOLS,
                 "messages": messages,
             }
             # Adaptive thinking + effort are frontier-only; smaller models reject them.
-            if config.MODEL in FRONTIER_MODELS:
+            if model in FRONTIER_MODELS:
                 create_kwargs["thinking"] = {"type": "adaptive"}
                 create_kwargs["output_config"] = {"effort": config.EFFORT}
 

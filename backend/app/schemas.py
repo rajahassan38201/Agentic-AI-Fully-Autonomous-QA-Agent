@@ -9,6 +9,7 @@ class RunCreate(BaseModel):
     target_url: str
     goals: Optional[str] = None
     max_steps: int = 100
+    model: Optional[str] = None
     viewport_width: Optional[int] = None
     viewport_height: Optional[int] = None
     # Auth: "none" | "basic" | "form"

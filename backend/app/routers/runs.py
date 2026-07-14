@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..config import MODEL as DEFAULT_MODEL
+from ..config import ALLOWED_MODELS, MODEL as DEFAULT_MODEL
 from ..agent.runner import LIVE_FRAMES, RUN_SECRETS, STOP_REQUESTS, run_test_job
 from ..database import SessionLocal
 from ..models import Finding, Step, TestRun
@@ -28,13 +28,15 @@ def create_run(body: schemas.RunCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="target_url is required")
 
     run_id = str(uuid.uuid4())
+    # Use the user's chosen model if it's one we support, else fall back to default.
+    model = body.model if body.model in ALLOWED_MODELS else DEFAULT_MODEL
     config = {
         "max_steps": max(1, min(body.max_steps, 5000)),
         "viewport_width": body.viewport_width,
         "viewport_height": body.viewport_height,
         "auth_type": body.auth_type,
         # Pin the model so cost stays accurate even if QA_MODEL changes later.
-        "model": DEFAULT_MODEL,
+        "model": model,
     }
     run = TestRun(
         id=run_id,
