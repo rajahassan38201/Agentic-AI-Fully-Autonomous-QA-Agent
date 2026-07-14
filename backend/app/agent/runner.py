@@ -52,6 +52,16 @@ def _accumulate_usage(run: TestRun, usage) -> None:
 
 MAX_TOKENS = 8000
 
+# Adaptive thinking and effort control are frontier-only capabilities. Smaller
+# models (e.g. Haiku 4.5) reject these params with a 400, so only send them for
+# models known to support them.
+FRONTIER_MODELS = {"claude-opus-4-8",
+                    "claude-opus-4-7",
+                    "claude-opus-4-6",
+                    "claude-sonnet-4-6",
+                    "claude-sonnet-5",
+                    "claude-fable-5"}
+
 
 def _now():
     return datetime.now(timezone.utc)
@@ -178,15 +188,19 @@ def run_test_job(run_id: str) -> None:
                 hit_limit = True
                 break
 
-            response = _client.messages.create(
-                model=config.MODEL,
-                max_tokens=MAX_TOKENS,
-                thinking={"type": "adaptive"},
-                output_config={"effort": config.EFFORT},
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=messages,
-            )
+            create_kwargs = {
+                "model": config.MODEL,
+                "max_tokens": MAX_TOKENS,
+                "system": SYSTEM_PROMPT,
+                "tools": TOOLS,
+                "messages": messages,
+            }
+            # Adaptive thinking + effort are frontier-only; smaller models reject them.
+            if config.MODEL in FRONTIER_MODELS:
+                create_kwargs["thinking"] = {"type": "adaptive"}
+                create_kwargs["output_config"] = {"effort": config.EFFORT}
+
+            response = _client.messages.create(**create_kwargs)
 
             _accumulate_usage(run, getattr(response, "usage", None))
 
