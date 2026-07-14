@@ -159,6 +159,17 @@ class BrowserSession:
         self.page.set_viewport_size({"width": int(width), "height": int(height)})
         return f"Viewport set to {width}x{height}."
 
+    def capture_frame(self):
+        """Return the current viewport as JPEG bytes for the live preview.
+
+        Kept small (low quality) and never written to disk — it's a transient
+        frame streamed to the UI so users can watch the agent drive the browser.
+        """
+        try:
+            return self.page.screenshot(type="jpeg", quality=45, full_page=False)
+        except Exception:
+            return None
+
     def close(self):
         for fn in (self.context.close, self.browser.close, self._pw.stop):
             try:

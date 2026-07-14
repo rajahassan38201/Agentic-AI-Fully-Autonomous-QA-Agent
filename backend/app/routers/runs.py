@@ -2,11 +2,12 @@
 import threading
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..agent.runner import RUN_SECRETS, run_test_job
+from ..config import MODEL as DEFAULT_MODEL
+from ..agent.runner import LIVE_FRAMES, RUN_SECRETS, run_test_job
 from ..database import SessionLocal
 from ..models import Finding, Step, TestRun
  
@@ -32,6 +33,8 @@ def create_run(body: schemas.RunCreate, db: Session = Depends(get_db)):
         "viewport_width": body.viewport_width,
         "viewport_height": body.viewport_height,
         "auth_type": body.auth_type,
+        # Pin the model so cost stays accurate even if QA_MODEL changes later.
+        "model": DEFAULT_MODEL,
     }
     run = TestRun(
         id=run_id,
@@ -77,8 +80,22 @@ def delete_run(run_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Run not found")
     db.delete(run)
     db.commit()
-    # Drop any in-memory secrets for a run that may still be executing.
+    # Drop any in-memory state for a run that may still be executing.
     RUN_SECRETS.pop(run_id, None)
+    LIVE_FRAMES.pop(run_id, None)
+
+
+@router.get("/runs/{run_id}/preview")
+def get_preview(run_id: str):
+    """Return the latest live browser frame as a JPEG, or 204 if none yet."""
+    frame = LIVE_FRAMES.get(run_id)
+    if not frame:
+        return Response(status_code=204)
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/runs/{run_id}/findings", response_model=list[schemas.FindingOut])

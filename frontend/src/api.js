@@ -42,3 +42,8 @@ export async function deleteRun(id) {
   }
   return true
 }
+
+// Live-preview frame URL. `tick` is a cache-buster so the <img> refreshes.
+export function previewUrl(id, tick) {
+  return `${API}/runs/${id}/preview?t=${tick}`
+}

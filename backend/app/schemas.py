@@ -28,6 +28,12 @@ class RunOut(BaseModel):
     steps_count: int
     findings_count: int
     config: Optional[dict]
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
     created_at: Optional[datetime]
     started_at: Optional[datetime]
     finished_at: Optional[datetime]

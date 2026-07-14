@@ -80,11 +80,17 @@ Open http://localhost:5173
 
 1. Enter a target URL (defaults to `https://automationexercise.com/`, a safe practice site).
 2. Optionally set goals, max steps, and auth.
-3. Click **Run test**. Select the run to watch live activity and findings appear.
+3. Click **Run test**. Select the run to watch it work across five tabs:
+   **Findings**, **Activity** (agent step log), **Live Preview** (the headless
+   browser streamed frame-by-frame), **Summary** (final report), and
+   **Total Cost** (token usage and an approximate USD cost).
 
 The agent navigates, clicks, fills forms, checks console/network errors, tests
 responsive layouts, and records each defect as a finding with severity, repro
 steps, and evidence.
+
+`max_steps` bounds the number of individual steps (tool calls + narration
+messages) — the same units shown in the Activity tab.
 
 ---
 

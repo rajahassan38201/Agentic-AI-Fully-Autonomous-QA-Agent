@@ -17,6 +17,41 @@ MODEL = os.getenv("QA_MODEL", "claude-opus-4-8")
 # Reasoning effort for the agent loop: low | medium | high | xhigh | max
 EFFORT = os.getenv("QA_EFFORT", "high")
 
+
+# --- Pricing (USD per 1M tokens) ---
+# Used to give an approximate cost for a run from its token usage. Cache-write is
+# ~1.25x input and cache-read ~0.1x input; we derive those from the base rates.
+def _rates(inp: float, out: float) -> dict:
+    return {
+        "input": inp,
+        "output": out,
+        "cache_write": round(inp * 1.25, 4),
+        "cache_read": round(inp * 0.10, 4),
+    }
+
+
+PRICING = {
+    "claude-opus-4-8": _rates(5.0, 25.0),
+    "claude-opus-4-7": _rates(5.0, 25.0),
+    "claude-opus-4-6": _rates(5.0, 25.0),
+    "claude-sonnet-5": _rates(3.0, 15.0),
+    "claude-sonnet-4-6": _rates(3.0, 15.0),
+    "claude-haiku-4-5": _rates(1.0, 5.0),
+    "claude-fable-5": _rates(10.0, 50.0),
+}
+
+
+def estimate_cost(model, input_tokens=0, output_tokens=0, cache_read=0, cache_write=0) -> float:
+    """Approximate USD cost for a run given its accumulated token usage."""
+    p = PRICING.get(model) or PRICING.get(MODEL) or _rates(5.0, 25.0)
+    cost = (
+        (input_tokens or 0) / 1_000_000 * p["input"]
+        + (output_tokens or 0) / 1_000_000 * p["output"]
+        + (cache_read or 0) / 1_000_000 * p["cache_read"]
+        + (cache_write or 0) / 1_000_000 * p["cache_write"]
+    )
+    return round(cost, 6)
+
 # --- Database ---
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

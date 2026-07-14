@@ -30,12 +30,41 @@ class TestRun(Base):
     findings_count = Column(Integer, nullable=False, default=0)
     config = Column(JSONB, nullable=True)
 
+    # Token usage accumulated across every Claude API call in the run.
+    input_tokens = Column(Integer, nullable=False, default=0)
+    output_tokens = Column(Integer, nullable=False, default=0)
+    cache_read_tokens = Column(Integer, nullable=False, default=0)
+    cache_write_tokens = Column(Integer, nullable=False, default=0)
+
     created_at = Column(DateTime(timezone=True), default=_now)
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
     findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
     steps = relationship("Step", back_populates="run", cascade="all, delete-orphan")
+
+    @property
+    def total_tokens(self) -> int:
+        return (
+            (self.input_tokens or 0)
+            + (self.output_tokens or 0)
+            + (self.cache_read_tokens or 0)
+            + (self.cache_write_tokens or 0)
+        )
+
+    @property
+    def cost_usd(self) -> float:
+        """Approximate USD cost of the run, from its token usage and model pricing."""
+        from .config import estimate_cost
+
+        model = (self.config or {}).get("model")
+        return estimate_cost(
+            model,
+            self.input_tokens,
+            self.output_tokens,
+            self.cache_read_tokens,
+            self.cache_write_tokens,
+        )
 
 
 class Finding(Base):

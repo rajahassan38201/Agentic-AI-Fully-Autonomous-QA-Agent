@@ -15,7 +15,35 @@ from .prompts import SYSTEM_PROMPT
 # API layer before the worker thread starts, and popped when the run finishes.
 RUN_SECRETS: dict[str, dict] = {}
 
+# Latest live-preview frame (JPEG bytes) per run, kept in memory only. The API
+# serves the most recent frame so the UI can show the headless browser live.
+LIVE_FRAMES: dict[str, bytes] = {}
+
 _client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+
+def _capture_frame(browser, run_id: str) -> None:
+    """Grab the current browser view and store it as this run's live frame."""
+    try:
+        frame = browser.capture_frame()
+        if frame:
+            LIVE_FRAMES[run_id] = frame
+    except Exception:
+        pass
+
+
+def _accumulate_usage(run: TestRun, usage) -> None:
+    """Add one response's token usage to the run's running totals."""
+    if usage is None:
+        return
+    run.input_tokens = (run.input_tokens or 0) + (getattr(usage, "input_tokens", 0) or 0)
+    run.output_tokens = (run.output_tokens or 0) + (getattr(usage, "output_tokens", 0) or 0)
+    run.cache_read_tokens = (run.cache_read_tokens or 0) + (
+        getattr(usage, "cache_read_input_tokens", 0) or 0
+    )
+    run.cache_write_tokens = (run.cache_write_tokens or 0) + (
+        getattr(usage, "cache_creation_input_tokens", 0) or 0
+    )
 
 MAX_TOKENS = 8000
 
@@ -125,6 +153,7 @@ def run_test_job(run_id: str) -> None:
             viewport = {"width": cfg["viewport_width"], "height": cfg["viewport_height"]}
 
         browser = BrowserSession(run_id, http_credentials=http_credentials, viewport=viewport)
+        _capture_frame(browser, run_id)
 
         messages = [{"role": "user", "content": _build_task(run, secrets)}]
         # `max_steps` is the budget of individual steps (tool calls + narration
@@ -149,6 +178,8 @@ def run_test_job(run_id: str) -> None:
                 tools=TOOLS,
                 messages=messages,
             )
+
+            _accumulate_usage(run, getattr(response, "usage", None))
 
             steps_before = step_index
 
@@ -177,6 +208,9 @@ def run_test_job(run_id: str) -> None:
                 if block.type != "tool_use":
                     continue
                 content, is_error = _dispatch(block.name, block.input or {}, browser, db, run)
+
+                # Refresh the live-preview frame after each browser action.
+                _capture_frame(browser, run_id)
 
                 db.add(Step(
                     run_id=run.id,
