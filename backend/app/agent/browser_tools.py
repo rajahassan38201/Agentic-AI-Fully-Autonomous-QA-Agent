@@ -327,6 +327,11 @@ TOOLS = [
         },
     },
     {
+        "name": "get_mfa_code",
+        "description": "Generate the current 6-digit MFA/TOTP code from the run's configured secret key. Call this only when a login flow asks for a one-time authentication code, and enter the returned code immediately (it expires within 30 seconds).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "report_finding",
         "description": "Record a defect or noteworthy observation. Call once per distinct issue.",
         "input_schema": {

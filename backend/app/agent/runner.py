@@ -10,6 +10,7 @@ from ..database import SessionLocal
 from ..models import Finding, Step, TestRun
 from .browser_tools import TOOLS, BrowserSession
 from .prompts import SYSTEM_PROMPT
+from .totp import generate_totp
 
 # Per-run secrets kept in memory (never persisted to the DB). Populated by the
 # API layer before the worker thread starts, and popped when the run finishes.
@@ -85,6 +86,16 @@ def _build_task(run: TestRun, secrets: dict) -> str:
             f"username: {secrets['username']}, password: {secrets.get('password', '')}. {instr} "
             "Then test authenticated areas."
         )
+    elif auth_type == "mfa" and secrets.get("username"):
+        instr = secrets.get("login_instructions") or "Find the login form and sign in."
+        parts.append(
+            "Authentication (MFA login): log in first using these test credentials — "
+            f"username: {secrets['username']}, password: {secrets.get('password', '')}. {instr} "
+            "After submitting the password you will be asked for a 6-digit MFA/OTP code. "
+            "Call the `get_mfa_code` tool at that moment to obtain the current code, then "
+            "enter it immediately (the code rotates every 30 seconds, so fetch it right "
+            "before you type it). Then test authenticated areas."
+        )
     elif auth_type == "basic":
         parts.append(
             "Authentication: HTTP Basic auth is pre-configured on the browser context, "
@@ -97,9 +108,19 @@ def _build_task(run: TestRun, secrets: dict) -> str:
     return "\n".join(parts)
 
 
-def _dispatch(name, tool_input, browser: BrowserSession, db, run: TestRun):
+def _dispatch(name, tool_input, browser: BrowserSession, db, run: TestRun, secrets: dict):
     """Execute a tool. Returns (content_str, is_error)."""
     try:
+        if name == "get_mfa_code":
+            secret = (secrets or {}).get("secret_key")
+            if not secret:
+                return "No MFA secret key was configured for this run.", True
+            try:
+                code = generate_totp(secret)
+            except Exception as exc:
+                return f"Could not generate MFA code (invalid secret key?): {exc}", True
+            return f"Current MFA code: {code}. Enter it now — it expires within 30 seconds.", False
+
         if name == "report_finding":
             finding = Finding(
                 run_id=run.id,
@@ -232,7 +253,7 @@ def run_test_job(run_id: str) -> None:
             for block in response.content:
                 if block.type != "tool_use":
                     continue
-                content, is_error = _dispatch(block.name, block.input or {}, browser, db, run)
+                content, is_error = _dispatch(block.name, block.input or {}, browser, db, run, secrets)
 
                 # Refresh the live-preview frame after each browser action.
                 _capture_frame(browser, run_id)

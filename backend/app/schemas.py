@@ -12,10 +12,12 @@ class RunCreate(BaseModel):
     model: Optional[str] = None
     viewport_width: Optional[int] = None
     viewport_height: Optional[int] = None
-    # Auth: "none" | "basic" | "form"
+    # Auth: "none" | "basic" | "form" | "mfa"
     auth_type: str = "none"
     username: Optional[str] = None
     password: Optional[str] = None
+    # Base32 TOTP secret, only used when auth_type == "mfa".
+    secret_key: Optional[str] = None
     login_instructions: Optional[str] = None
 
 

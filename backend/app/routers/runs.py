@@ -54,6 +54,7 @@ def create_run(body: schemas.RunCreate, db: Session = Depends(get_db)):
         "auth_type": body.auth_type,
         "username": body.username,
         "password": body.password,
+        "secret_key": body.secret_key,
         "login_instructions": body.login_instructions,
     }
 

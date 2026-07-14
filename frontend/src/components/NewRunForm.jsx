@@ -18,7 +18,22 @@ const initial = {
   auth_type: 'none',
   username: '',
   password: '',
+  secret_key: '',
   login_instructions: '',
+}
+
+// Required (non-optional) fields per auth type. `login_instructions` is always
+// optional, so it is never listed here.
+const REQUIRED_AUTH_FIELDS = {
+  basic: ['username', 'password'],
+  form: ['username', 'password'],
+  mfa: ['username', 'password', 'secret_key'],
+}
+
+const FIELD_LABELS = {
+  username: 'Username / email',
+  password: 'Password',
+  secret_key: 'Secret key',
 }
 
 export default function NewRunForm({ onCreated }) {
@@ -28,8 +43,25 @@ export default function NewRunForm({ onCreated }) {
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
+  // Returns an error message if a required field is missing, else null.
+  const validate = () => {
+    if (!form.target_url.trim()) return 'Target URL is required.'
+    const required = REQUIRED_AUTH_FIELDS[form.auth_type] || []
+    for (const field of required) {
+      if (!String(form[field] || '').trim()) {
+        return `${FIELD_LABELS[field]} is required for this authentication type.`
+      }
+    }
+    return null
+  }
+
   const submit = async (e) => {
     e.preventDefault()
+    const validationError = validate()
+    if (validationError) {
+      setError(validationError)
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -41,11 +73,14 @@ export default function NewRunForm({ onCreated }) {
         auth_type: form.auth_type,
         username: form.username || null,
         password: form.password || null,
+        secret_key: form.secret_key || null,
         login_instructions: form.login_instructions || null,
       }
       const run = await createRun(payload)
       onCreated(run)
-      setForm({ ...initial, target_url: form.target_url })
+      // Keep the whole form (target, steps, model, auth) for the next run; only
+      // clear the per-run goals field.
+      setForm({ ...form, goals: '' })
     } catch (err) {
       setError(String(err.message || err))
     } finally {
@@ -83,13 +118,22 @@ export default function NewRunForm({ onCreated }) {
         <option value="none">None</option>
         <option value="basic">HTTP Basic</option>
         <option value="form">Form login</option>
+        <option value="mfa">MFA Login</option>
       </select>
 
       {form.auth_type !== 'none' && (
         <div className="auth-fields">
-          <input value={form.username} onChange={update('username')} placeholder="Username / email" />
-          <input type="password" value={form.password} onChange={update('password')} placeholder="Password" />
-          {form.auth_type === 'form' && (
+          <input value={form.username} onChange={update('username')} placeholder="Username / email" required />
+          <input type="password" value={form.password} onChange={update('password')} placeholder="Password" required />
+          {form.auth_type === 'mfa' && (
+            <input
+              value={form.secret_key}
+              onChange={update('secret_key')}
+              placeholder="Secret key (base32 TOTP secret for 6-digit OTP)"
+              required
+            />
+          )}
+          {(form.auth_type === 'form' || form.auth_type === 'mfa') && (
             <textarea
               value={form.login_instructions}
               onChange={update('login_instructions')}
