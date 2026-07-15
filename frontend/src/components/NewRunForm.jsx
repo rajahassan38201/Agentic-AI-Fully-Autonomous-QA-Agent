@@ -78,9 +78,9 @@ export default function NewRunForm({ onCreated }) {
       }
       const run = await createRun(payload)
       onCreated(run)
-      // Keep the whole form (target, steps, model, auth) for the next run; only
-      // clear the per-run goals field.
-      setForm({ ...form, goals: '' })
+      // Keep the form for the next run, but clear the per-run goals and never
+      // leave secrets sitting in the fields once they have been submitted.
+      setForm({ ...form, goals: '', password: '', secret_key: '' })
     } catch (err) {
       setError(String(err.message || err))
     } finally {
