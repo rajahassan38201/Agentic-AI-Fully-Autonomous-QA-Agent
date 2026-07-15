@@ -5,6 +5,11 @@ import StepLog from './StepLog.jsx'
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info']
 
+// Session recordings run 20+ minutes and are mostly the agent waiting on page
+// loads, so default the replay to 2x. Viewers can still change it in the native
+// speed menu — this only sets the starting rate.
+const VIDEO_PLAYBACK_RATE = 2
+
 function fmtInt(n) {
   return (Number(n) || 0).toLocaleString()
 }
@@ -217,6 +222,14 @@ export default function RunDetail({ runId }) {
                 src={videoUrl(runId)}
                 controls
                 preload="metadata"
+                // playbackRate is a DOM property, not an attribute, so it has to
+                // be assigned on the element. Do it once metadata is in: the
+                // browser resets the rate to defaultPlaybackRate while loading,
+                // so setting it any earlier gets overwritten.
+                onLoadedMetadata={(e) => {
+                  e.currentTarget.defaultPlaybackRate = VIDEO_PLAYBACK_RATE
+                  e.currentTarget.playbackRate = VIDEO_PLAYBACK_RATE
+                }}
               />
             ) : (
               <div className="preview-empty">
