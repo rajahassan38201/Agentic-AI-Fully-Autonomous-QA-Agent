@@ -1,4 +1,5 @@
 """The agent loop: Opus 4.8 + Playwright tools, run in a worker thread."""
+import base64
 import json
 import traceback
 from datetime import datetime, timezone
@@ -73,6 +74,17 @@ def _truncate(text, limit=800):
     return text if len(text) <= limit else text[:limit] + " …[truncated]"
 
 
+def _summarize(content):
+    """Render a tool result for the Activity log.
+
+    Most results are strings; `screenshot` returns image content blocks, which
+    are for the model to look at and would be megabytes of base64 in the DB.
+    """
+    if isinstance(content, str):
+        return _truncate(content, 600)
+    return "[image returned to the agent]"
+
+
 def _build_task(run: TestRun, secrets: dict) -> str:
     parts = [
         f"Target website: {run.target_url}",
@@ -138,28 +150,124 @@ def _dispatch(name, tool_input, browser: BrowserSession, db, run: TestRun, secre
             db.commit()
             return "Finding recorded.", False
 
+        if name == "screenshot":
+            img = browser.screenshot(tool_input.get("full_page", False))
+            if not img:
+                return "Could not capture a screenshot.", True
+            # Image content blocks: the model reads these with vision, which is
+            # the only way it can catch a purely visual defect.
+            return [{
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64.standard_b64encode(img).decode("ascii"),
+                },
+            }], False
+
+        # Navigation
         if name == "navigate":
             return browser.navigate(tool_input["url"]), False
+        if name == "go_back":
+            return browser.go_back(), False
+        if name == "go_forward":
+            return browser.go_forward(), False
+        if name == "reload":
+            return browser.reload(), False
+
+        # Seeing
         if name == "snapshot":
-            return browser.snapshot(), False
+            return browser.snapshot(
+                scope=tool_input.get("scope"), limit=tool_input.get("limit")
+            ), False
+        if name == "find":
+            return browser.snapshot(
+                scope=tool_input.get("scope"), match=tool_input["text"]
+            ), False
+        if name == "describe":
+            return browser.describe(tool_input["ref"]), False
+        if name == "read_table":
+            return browser.read_table(
+                tool_input.get("index", 0), tool_input.get("max_rows", 50)
+            ), False
+
+        # Interaction
         if name == "click":
-            return browser.click(tool_input["ref"]), False
+            return browser.click(
+                tool_input["ref"],
+                button=tool_input.get("button", "left"),
+                click_count=tool_input.get("click_count", 1),
+                modifiers=tool_input.get("modifiers"),
+            ), False
+        if name == "hover":
+            return browser.hover(tool_input["ref"]), False
         if name == "fill":
             return browser.fill(tool_input["ref"], tool_input.get("text", "")), False
+        if name == "type_text":
+            return browser.type_text(
+                tool_input["ref"],
+                tool_input.get("text", ""),
+                tool_input.get("delay", 60),
+                tool_input.get("clear_first", True),
+            ), False
+        if name == "clear":
+            return browser.clear(tool_input["ref"]), False
+        if name == "set_checkbox":
+            return browser.set_checkbox(tool_input["ref"], tool_input.get("checked", True)), False
         if name == "select_option":
             return browser.select_option(tool_input["ref"], tool_input["value"]), False
+        if name == "upload_file":
+            return browser.upload_file(
+                tool_input["ref"], tool_input["filename"], tool_input.get("content", "")
+            ), False
+        if name == "drag_and_drop":
+            return browser.drag_and_drop(tool_input["source_ref"], tool_input["target_ref"]), False
         if name == "press_key":
-            return browser.press_key(tool_input["key"]), False
+            return browser.press_key(tool_input["key"], tool_input.get("ref")), False
+        if name == "scroll":
+            return browser.scroll(
+                tool_input.get("direction", "down"),
+                tool_input.get("amount", 600),
+                tool_input.get("ref"),
+            ), False
         if name == "wait_for":
-            return browser.wait_for(tool_input.get("text"), tool_input.get("seconds")), False
+            return browser.wait_for(
+                tool_input.get("text"), tool_input.get("selector"), tool_input.get("seconds")
+            ), False
+
+        # Dialogs, tabs, frames, viewport
+        if name == "handle_dialog":
+            return browser.handle_dialog(
+                tool_input.get("action", "dismiss"), tool_input.get("text", "")
+            ), False
+        if name == "list_tabs":
+            return browser.list_tabs(), False
+        if name == "switch_tab":
+            return browser.switch_tab(tool_input["index"]), False
+        if name == "close_tab":
+            return browser.close_tab(tool_input.get("index")), False
+        if name == "switch_frame":
+            return browser.switch_frame(tool_input.get("index"), tool_input.get("name")), False
+        if name == "set_viewport":
+            return browser.set_viewport(tool_input["width"], tool_input["height"]), False
+
+        # Assertions / diagnostics
         if name == "evaluate":
             return browser.evaluate(tool_input["script"]), False
+        if name == "check_layout":
+            return browser.check_layout(), False
+        if name == "check_accessibility":
+            return browser.check_accessibility(), False
         if name == "get_console_errors":
             return browser.get_console_errors(), False
         if name == "get_network_failures":
             return browser.get_network_failures(), False
-        if name == "set_viewport":
-            return browser.set_viewport(tool_input["width"], tool_input["height"]), False
+        if name == "get_network_requests":
+            return browser.get_network_requests(
+                tool_input.get("url_contains"), tool_input.get("status_min")
+            ), False
+        if name == "get_storage":
+            return browser.get_storage(), False
 
         return f"Unknown tool: {name}", True
     except Exception as exc:  # surface the error to the model so it can adapt
@@ -214,14 +322,24 @@ def run_test_job(run_id: str) -> None:
             create_kwargs = {
                 "model": model,
                 "max_tokens": MAX_TOKENS,
-                "system": SYSTEM_PROMPT,
+                # Two breakpoints. This one pins the frozen tools+system prefix
+                # (~9.5k tokens, measured with count_tokens — comfortably over
+                # Opus 4.8's 4096-token minimum). Caching renders tools → system
+                # → messages, so a breakpoint on the last system block covers
+                # both. It guarantees the prefix caches even when the tail
+                # breakpoint below misses, which it can: a breakpoint only looks
+                # back 20 content blocks, and a turn with several parallel tool
+                # calls can exceed that.
+                "system": [{
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }],
                 "tools": TOOLS,
                 "messages": messages,
-                # Auto-places the breakpoint on the last cacheable block (the
-                # newest tool_result), so each turn re-reads the prior history
-                # at 0.1x instead of full input price. Don't move it onto
-                # SYSTEM_PROMPT: tools+system is ~2.6k tokens, under Opus 4.8's
-                # 4096-token minimum cacheable prefix, and would cache nothing.
+                # Auto-places a second breakpoint on the last cacheable block
+                # (the newest tool_result), so each turn also re-reads the
+                # conversation so far at 0.1x instead of full input price.
                 "cache_control": {"type": "ephemeral"},
             }
             # Adaptive thinking + effort are frontier-only; smaller models reject them.
@@ -269,7 +387,7 @@ def run_test_job(run_id: str) -> None:
                     index=step_index,
                     tool_name=block.name,
                     tool_input=_truncate(json.dumps(block.input or {}), 600),
-                    result_summary=_truncate(content, 600),
+                    result_summary=_summarize(content),
                     is_error=is_error,
                 ))
                 step_index += 1
