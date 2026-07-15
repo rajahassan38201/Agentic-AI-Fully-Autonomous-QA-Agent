@@ -217,6 +217,12 @@ def run_test_job(run_id: str) -> None:
                 "system": SYSTEM_PROMPT,
                 "tools": TOOLS,
                 "messages": messages,
+                # Auto-places the breakpoint on the last cacheable block (the
+                # newest tool_result), so each turn re-reads the prior history
+                # at 0.1x instead of full input price. Don't move it onto
+                # SYSTEM_PROMPT: tools+system is ~2.6k tokens, under Opus 4.8's
+                # 4096-token minimum cacheable prefix, and would cache nothing.
+                "cache_control": {"type": "ephemeral"},
             }
             # Adaptive thinking + effort are frontier-only; smaller models reject them.
             if model in FRONTIER_MODELS:

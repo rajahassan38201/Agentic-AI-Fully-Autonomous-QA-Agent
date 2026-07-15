@@ -4,6 +4,7 @@ All settings are read from environment variables (loaded from a local .env file)
 Nothing here is secret in the repo — put real values in backend/.env.
 """
 import os
+from datetime import date, datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -52,9 +53,27 @@ PRICING = {
 }
 
 
+# Promotional rates that expire, mapped to the date they are last valid. After
+# that date the list price in PRICING applies again with no code change needed.
+INTRO_PRICING = {
+    # Sonnet 5 introductory pricing; list price is $3/$15.
+    "claude-sonnet-5": (date(2026, 8, 31), _rates(2.0, 10.0)),
+}
+
+
+def pricing_for(model, on=None) -> dict:
+    """Rates for `model`, honouring introductory pricing while it is still live."""
+    intro = INTRO_PRICING.get(model)
+    if intro is not None:
+        last_valid_day, intro_rates = intro
+        if (on or datetime.now(timezone.utc).date()) <= last_valid_day:
+            return intro_rates
+    return PRICING.get(model) or PRICING.get(MODEL) or _rates(5.0, 25.0)
+
+
 def estimate_cost(model, input_tokens=0, output_tokens=0, cache_read=0, cache_write=0) -> float:
     """Approximate USD cost for a run given its accumulated token usage."""
-    p = PRICING.get(model) or PRICING.get(MODEL) or _rates(5.0, 25.0)
+    p = pricing_for(model)
     cost = (
         (input_tokens or 0) / 1_000_000 * p["input"]
         + (output_tokens or 0) / 1_000_000 * p["output"]
