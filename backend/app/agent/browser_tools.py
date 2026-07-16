@@ -94,6 +94,7 @@ SNAPSHOT_JS = r"""
   }
 
   const vw = window.innerWidth, vh = window.innerHeight;
+  const formEls = Array.from(document.querySelectorAll('form'));
   const out = [];
   let i = 0, total = 0;
 
@@ -171,9 +172,49 @@ SNAPSHOT_JS = r"""
     if (el.hasAttribute('aria-selected')) r.selected = el.getAttribute('aria-selected');
     if (el.closest && el.closest(MODAL_SEL)) r.inModal = true;
     if (rect.bottom < 0 || rect.top > vh || rect.right < 0 || rect.left > vw) r.offscreen = true;
+    // Which form this control belongs to — the agent needs this to test a
+    // multi-field filter as one unit rather than poking a single field.
+    if (el.form) {
+      const fi = formEls.indexOf(el.form);
+      if (fi >= 0) r.form = fi;
+    }
 
     out.push(r);
   }
+
+  // Group controls by form. A search panel with 8 filter inputs is 8 features
+  // plus their interactions — listing every field ref together is what lets the
+  // agent work the whole form instead of filling one box and calling it tested.
+  const forms = [];
+  formEls.forEach((f, idx) => {
+    if (forms.length >= 8) return;
+    const fields = [], submits = [];
+    f.querySelectorAll('[data-qa-ref]').forEach((el) => {
+      const ref = el.getAttribute('data-qa-ref');
+      const t = el.getAttribute('type');
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'button' || t === 'submit' || t === 'button' || t === 'reset') submits.push(ref);
+      else if (tag === 'input' || tag === 'select' || tag === 'textarea') fields.push(ref);
+    });
+    if (!fields.length && !submits.length) return;
+    forms.push({
+      index: idx,
+      name: f.getAttribute('name') || f.getAttribute('id') || '',
+      method: (f.getAttribute('method') || 'get').toLowerCase(),
+      action: (f.getAttribute('action') || '').slice(0, 80),
+      field_count: fields.length,
+      fields: fields,
+      buttons: submits
+    });
+  });
+
+  // Per-page control census. This is the agent's coverage obligation FOR THIS
+  // PAGE — element coverage never carries over from another page.
+  const counts = {};
+  out.forEach((e) => {
+    const k = e.tag === 'input' ? 'input:' + (e.type || 'text') : e.tag;
+    counts[k] = (counts[k] || 0) + 1;
+  });
 
   // Open modals/popups — the agent must know a dialog is covering the page.
   const dialogs = [];
@@ -210,11 +251,13 @@ SNAPSHOT_JS = r"""
   const res = {
     url: location.href,
     title: document.title,
+    controls_on_this_page: counts,
     elements: out,
     text: bodyText
   };
   if (total > out.length) res.elements_truncated = 'showing ' + out.length + ' of ' + total +
     ' — use snapshot with a `scope` selector, or `find`, to see the rest';
+  if (forms.length) res.forms = forms;
   if (dialogs.length) res.open_dialogs = dialogs;
   if (tables.length) res.tables = tables;
   if (frames.length) res.iframes = frames;
@@ -1073,6 +1116,22 @@ TOOLS = [
     },
 
     # --- run-specific ---
+    {
+        "name": "test_plan",
+        "description": "Your coverage ledger. Call it once right after recon to enumerate EVERY surface you intend to test, then call it again to update a surface's status as you finish it. Surfaces are upserted by name, so later calls only need the ones that changed. You will be periodically reminded of what is still untested — this is what stops you from spending the whole budget on one page while others are never opened. Mark a surface 'tested' only when you have actually worked its controls, not merely visited it.",
+        "input_schema": _obj({
+            "surfaces": {
+                "type": "array",
+                "description": "Surfaces to add or update.",
+                "items": _obj({
+                    "name": {"type": "string", "description": "Short stable id, e.g. 'checkout' or 'admin/users list'. Reused to update this entry later."},
+                    "url": {"type": "string"},
+                    "status": {"type": "string", "enum": ["untested", "in_progress", "tested", "blocked"]},
+                    "note": {"type": "string", "description": "What is still left to do here, or why it is blocked."},
+                }, ["name", "status"]),
+            },
+        }, ["surfaces"]),
+    },
     {
         "name": "get_mfa_code",
         "description": "Generate the current 6-digit MFA/TOTP code from the run's configured secret key. Call this only when a login flow asks for a one-time authentication code, and enter the returned code immediately (it expires within 30 seconds).",

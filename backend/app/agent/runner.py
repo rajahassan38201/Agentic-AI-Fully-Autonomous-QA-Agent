@@ -26,6 +26,11 @@ LIVE_FRAMES: dict[str, bytes] = {}
 # `set` add/discard/membership are atomic under CPython's GIL, so no lock needed.
 STOP_REQUESTS: set[str] = set()
 
+# The agent's coverage ledger per run: {run_id: {surface_name: {...}}}. Written
+# by the `test_plan` tool, read back to the agent in the periodic reminder, and
+# folded into the final summary so the report states what was NOT covered.
+RUN_PLANS: dict[str, dict] = {}
+
 _client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
 
@@ -64,6 +69,14 @@ FRONTIER_MODELS = {"claude-opus-4-8",
                     "claude-sonnet-5",
                     "claude-fable-5"}
 
+# Mid-conversation {"role": "system"} messages are Opus 4.8 only; every other
+# model rejects them with a 400. On those, the same text goes in the user turn.
+MIDCONV_SYSTEM_MODELS = {"claude-opus-4-8"}
+
+# How often to remind the agent what it still has not covered. Long runs drift:
+# it goes deep on one page and forgets whole surfaces exist.
+REMIND_EVERY_STEPS = 15
+
 
 def _now():
     return datetime.now(timezone.utc)
@@ -72,6 +85,62 @@ def _now():
 def _truncate(text, limit=800):
     text = text or ""
     return text if len(text) <= limit else text[:limit] + " …[truncated]"
+
+
+def _plan_rows(run_id):
+    return (RUN_PLANS.get(run_id) or {}).items()
+
+
+def _plan_digest(run_id):
+    """Compact status counts + the names still outstanding."""
+    rows = list(_plan_rows(run_id))
+    by_status = {}
+    for _, s in rows:
+        st = s.get("status", "untested")
+        by_status[st] = by_status.get(st, 0) + 1
+    outstanding = [n for n, s in rows if s.get("status") in ("untested", "in_progress")]
+    return by_status, outstanding
+
+
+def _coverage_reminder(run_id, step_index, max_steps):
+    """Operator nudge injected mid-run to keep coverage honest."""
+    left = max_steps - step_index
+    if not RUN_PLANS.get(run_id):
+        return (f"Progress check — step {step_index}/{max_steps}, {left} left. You have not "
+                "called `test_plan` yet. Enumerate every surface of this site now and record "
+                "it, so you do not spend the whole budget on one page.")
+
+    by_status, outstanding = _plan_digest(run_id)
+    parts = [f"Progress check — step {step_index}/{max_steps}, {left} left.",
+             "Coverage ledger: " + ", ".join(f"{v} {k}" for k, v in sorted(by_status.items())) + "."]
+    if outstanding:
+        parts.append("Not yet finished: " + ", ".join(outstanding[:12]) + ".")
+        parts.append("Remember element coverage does not carry across pages — the controls on "
+                     "an untested surface are untested no matter what you tested elsewhere. "
+                     "If the budget is tight, open an untested high-risk surface rather than "
+                     "re-verifying something that already passed.")
+    else:
+        parts.append("Every registered surface is done. Either register the surfaces you have "
+                     "not enumerated yet, or move to cross-cutting checks (responsive, "
+                     "accessibility, back/forward) and then finish.")
+    parts.append("Keep `test_plan` up to date as you go.")
+    return " ".join(parts)
+
+
+def _coverage_appendix(run_id):
+    """Render the ledger onto the summary.
+
+    A run that stopped early is the case that matters: the reader needs to see
+    which surfaces were never reached rather than assume silence means passed.
+    """
+    rows = sorted(_plan_rows(run_id), key=lambda kv: kv[1].get("status", "untested"))
+    if not rows:
+        return ""
+    lines = ["", "", "## Coverage"]
+    for name, s in rows:
+        note = f" — {s['note']}" if s.get("note") else ""
+        lines.append(f"- **{name}**: {s.get('status', 'untested')}{note}")
+    return "\n".join(lines)
 
 
 def _summarize(content):
@@ -132,6 +201,22 @@ def _dispatch(name, tool_input, browser: BrowserSession, db, run: TestRun, secre
             except Exception as exc:
                 return f"Could not generate MFA code (invalid secret key?): {exc}", True
             return f"Current MFA code: {code}. Enter it now — it expires within 30 seconds.", False
+
+        if name == "test_plan":
+            plan = RUN_PLANS.setdefault(run.id, {})
+            for s in tool_input.get("surfaces") or []:
+                key = (s.get("name") or "").strip()
+                if not key:
+                    continue
+                # Upsert by name so the agent can send only what changed.
+                entry = plan.setdefault(key, {})
+                entry.update({k: v for k, v in s.items() if k != "name" and v is not None})
+            by_status, outstanding = _plan_digest(run.id)
+            return json.dumps({
+                "surfaces": len(plan),
+                "by_status": by_status,
+                "not_yet_finished": outstanding,
+            }), False
 
         if name == "report_finding":
             finding = Finding(
@@ -310,6 +395,7 @@ def run_test_job(run_id: str) -> None:
         final_summary = None
         hit_limit = False
         stopped = False
+        next_reminder_at = REMIND_EVERY_STEPS
 
         while True:
             if run_id in STOP_REQUESTS:
@@ -410,6 +496,23 @@ def run_test_job(run_id: str) -> None:
 
             messages.append({"role": "user", "content": tool_results})
 
+            # Periodic coverage nudge. It goes at the tail of the conversation
+            # rather than into SYSTEM_PROMPT: editing the system prompt would
+            # change the head of the prefix and re-bill the whole cached
+            # conversation at full price on every turn.
+            if not stopped and step_index >= next_reminder_at:
+                next_reminder_at = step_index + REMIND_EVERY_STEPS
+                reminder = _coverage_reminder(run_id, step_index, max_steps)
+                if model in MIDCONV_SYSTEM_MODELS:
+                    # Opus 4.8 only: a real operator-authority channel that a
+                    # page's own text cannot spoof.
+                    messages.append({"role": "system", "content": reminder})
+                else:
+                    tool_results.append({
+                        "type": "text",
+                        "text": f"<system-reminder>{reminder}</system-reminder>",
+                    })
+
             if stopped:
                 break
 
@@ -430,7 +533,7 @@ def run_test_job(run_id: str) -> None:
                 final_summary = (final_summary or "") + "\n(Reached the maximum step limit; testing stopped.)"
 
         run.steps_count = step_index
-        run.summary = final_summary or "Test run completed."
+        run.summary = (final_summary or "Test run completed.") + _coverage_appendix(run_id)
         run.finished_at = _now()
         db.commit()
 
@@ -465,5 +568,6 @@ def run_test_job(run_id: str) -> None:
                 db.rollback()
         RUN_SECRETS.pop(run_id, None)
         LIVE_FRAMES.pop(run_id, None)
+        RUN_PLANS.pop(run_id, None)
         STOP_REQUESTS.discard(run_id)
         db.close()
