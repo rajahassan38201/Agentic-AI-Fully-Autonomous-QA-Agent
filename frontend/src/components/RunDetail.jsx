@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { getFindings, getRun, getSteps, previewUrl, videoUrl, stopRun } from '../api.js'
 import FindingCard from './FindingCard.jsx'
+import { StopIcon } from './Icons.jsx'
+import StatusBadge from './StatusBadge.jsx'
 import StepLog from './StepLog.jsx'
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info']
@@ -19,14 +21,6 @@ function fmtCost(c) {
   if (n === 0) return '$0.00'
   if (n < 0.01) return '$' + n.toFixed(4)
   return '$' + n.toFixed(2)
-}
-
-function StopIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <rect x="6" y="6" width="12" height="12" rx="2" />
-    </svg>
-  )
 }
 
 export default function RunDetail({ runId }) {
@@ -125,7 +119,7 @@ export default function RunDetail({ runId }) {
         <div>
           <h2>{run.target_url}</h2>
           <div className="detail-sub">
-            <span className={`badge badge-${run.status}`}>{run.status}</span>
+            <StatusBadge status={run.status} />
             {running && <span className="spinner" />}
             <span className="muted">
               {run.steps_count} steps · {findings.length} findings · {fmtCost(run.cost_usd)}

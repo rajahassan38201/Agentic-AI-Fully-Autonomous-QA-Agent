@@ -4,9 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import CORS_ORIGINS
 from .database import init_db
-from .routers import runs
+from .routers import projects, runs
 
-app = FastAPI(title="Agentic QA", version="0.1.0")
+app = FastAPI(title="Agentic QA", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +22,7 @@ def _startup():
     init_db()
 
 
+app.include_router(projects.router)
 app.include_router(runs.router)
 
 

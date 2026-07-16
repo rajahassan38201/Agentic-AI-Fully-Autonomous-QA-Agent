@@ -1,4 +1,4 @@
-"""Database models: TestRun, Finding, Step."""
+"""Database models: Project, TestRun, Finding, Step."""
 import uuid
 from datetime import datetime, timezone
 
@@ -26,10 +26,46 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class Project(Base):
+    """A configured application under test. Created once, run many times."""
+
+    __tablename__ = "projects"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    name = Column(String, nullable=False)
+    target_url = Column(String, nullable=False)
+    goals = Column(Text, nullable=True)
+    max_steps = Column(Integer, nullable=False, default=100)
+    model = Column(String, nullable=False)
+
+    # Auth: "none" | "basic" | "form" | "mfa"
+    auth_type = Column(String, nullable=False, default="none")
+    username = Column(String, nullable=True)
+    login_instructions = Column(Text, nullable=True)
+
+    # Encrypted at rest via app/crypto.py — never read directly. The API layer
+    # decrypts these in memory only, at the moment a run starts.
+    password_encrypted = Column(Text, nullable=True)
+    secret_key_encrypted = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+    runs = relationship(
+        "TestRun",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="TestRun.created_at.desc()",
+    )
+
+
 class TestRun(Base):
     __tablename__ = "test_runs"
 
     id = Column(String, primary_key=True, default=_uuid)
+    project_id = Column(
+        String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     target_url = Column(String, nullable=False)
     goals = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed|stopped
@@ -55,6 +91,7 @@ class TestRun(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
 
+    project = relationship("Project", back_populates="runs")
     findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
     steps = relationship("Step", back_populates="run", cascade="all, delete-orphan")
 

@@ -2,27 +2,53 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-class RunCreate(BaseModel):
+class ProjectBase(BaseModel):
+    name: str
     target_url: str
     goals: Optional[str] = None
-    max_steps: int = 100
+    max_steps: int = Field(default=100, ge=1, le=5000)
     model: Optional[str] = None
-    viewport_width: Optional[int] = None
-    viewport_height: Optional[int] = None
     # Auth: "none" | "basic" | "form" | "mfa"
     auth_type: str = "none"
     username: Optional[str] = None
+    login_instructions: Optional[str] = None
+
+
+class ProjectCreate(ProjectBase):
     password: Optional[str] = None
     # Base32 TOTP secret, only used when auth_type == "mfa".
     secret_key: Optional[str] = None
-    login_instructions: Optional[str] = None
+
+
+class ProjectUpdate(ProjectCreate):
+    """Same shape as create. Credential fields left as None keep their stored
+    value, so editing a project doesn't require retyping its password."""
+
+
+class ProjectOut(ProjectBase):
+    id: str
+    model: str
+    # Credentials are never returned. These just tell the UI what is on file.
+    has_password: bool = False
+    has_secret_key: bool = False
+    # Status of this project's most recent run, for the projects table.
+    last_run_id: Optional[str] = None
+    last_run_status: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    runs_count: int = 0
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
 
 
 class RunOut(BaseModel):
     id: str
+    project_id: Optional[str] = None
     target_url: str
     goals: Optional[str]
     status: str

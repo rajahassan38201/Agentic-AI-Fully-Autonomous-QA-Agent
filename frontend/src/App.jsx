@@ -1,86 +1,44 @@
-import { useCallback, useEffect, useState } from 'react'
-import { listRuns, deleteRun } from './api.js'
-import NewRunForm from './components/NewRunForm.jsx'
-import RunList from './components/RunList.jsx'
-import RunDetail from './components/RunDetail.jsx'
+import { useState } from 'react'
+import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import Sidebar from './components/Sidebar.jsx'
+import TopBar from './components/TopBar.jsx'
+import Dashboard from './pages/Dashboard.jsx'
+import Projects from './pages/Projects.jsx'
+import ProjectView from './pages/ProjectView.jsx'
+
+// The page title shown in the top bar, keyed by route.
+function useTitle() {
+  const { pathname } = useLocation()
+  if (pathname.startsWith('/projects/')) return 'Project'
+  if (pathname.startsWith('/projects')) return 'Projects'
+  return 'Dashboard'
+}
+
+// Remount the view when the project changes so its polling state starts clean.
+function ProjectViewRoute() {
+  const { projectId } = useParams()
+  return <ProjectView key={projectId} projectId={projectId} />
+}
 
 export default function App() {
-  const [runs, setRuns] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
-
-  const refreshRuns = useCallback(async () => {
-    try {
-      setRuns(await listRuns())
-    } catch (e) {
-      console.error(e)
-    }
-  }, [])
-
-  useEffect(() => {
-    refreshRuns()
-    const t = setInterval(refreshRuns, 3000)
-    return () => clearInterval(t)
-  }, [refreshRuns])
-
-  const handleCreated = (run) => {
-    setSelectedId(run.id)
-    refreshRuns()
-  }
-
-  const handleDelete = useCallback(async (id) => {
-    // Optimistically drop it from the list; clear the detail pane if it was open.
-    setRuns((prev) => prev.filter((r) => r.id !== id))
-    setSelectedId((cur) => (cur === id ? null : cur))
-    try {
-      await deleteRun(id)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      refreshRuns()
-    }
-  }, [refreshRuns])
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const title = useTitle()
 
   return (
-    <div className="app">
-      <div className="bg-layer" aria-hidden="true">
-        <span className="blob blob-1" />
-        <span className="blob blob-2" />
-        <span className="blob blob-3" />
-      </div>
+    <div className={sidebarOpen ? 'app' : 'app app-nav-collapsed'}>
+      <TopBar title={title} />
 
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-logo">🧪</span>
-          <span className="brand-name">Agentic QA</span>
-        </div>
-        <div className="topbar-spacer" />
-        <div className="topbar-pill">
-          <span className="dot" />
-          Live
-        </div>
-      </header>
+      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen((v) => !v)} />
 
-      <div className="layout">
-        <aside className="sidebar">
-          <NewRunForm onCreated={handleCreated} />
-          <RunList runs={runs} selectedId={selectedId} onSelect={setSelectedId} onDelete={handleDelete} />
-        </aside>
-
-        <main className="content">
-          {selectedId ? (
-            <RunDetail runId={selectedId} />
-          ) : (
-            <div className="empty">
-              <div className="empty-icon">🚀</div>
-              <h2>Start a test run</h2>
-              <p>
-                Enter a URL on the left and let the agent explore, click, and probe it for you.
-                Select a run to watch live progress and findings stream in.
-              </p>
-            </div>
-          )}
-        </main>
-      </div>
+      <main className="content">
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/:projectId" element={<ProjectViewRoute />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </main>
     </div>
   )
 }

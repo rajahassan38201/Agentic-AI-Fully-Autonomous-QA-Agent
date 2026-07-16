@@ -365,6 +365,11 @@ def run_test_job(run_id: str) -> None:
     browser = None
     secrets = RUN_SECRETS.get(run_id, {})
     step_index = 0
+    # The status the run ends on. It is written last — after the session video
+    # has been stored — so that a terminal status always means "everything for
+    # this run is saved". The UI stops polling as soon as it sees one, and would
+    # otherwise miss a video that lands a moment later.
+    terminal_status = "failed"
     try:
         run = db.get(TestRun, run_id)
         if run is None:
@@ -521,14 +526,14 @@ def run_test_job(run_id: str) -> None:
                 break
 
         if stopped:
-            run.status = "stopped"
+            terminal_status = "stopped"
             final_summary = (
                 "Stopped by user.\n\n"
                 "Testing was stopped before completion. All progress, activity, and "
                 "findings recorded up to this point have been saved."
             )
         else:
-            run.status = "completed"
+            terminal_status = "completed"
             if hit_limit:
                 final_summary = (final_summary or "") + "\n(Reached the maximum step limit; testing stopped.)"
 
@@ -539,33 +544,40 @@ def run_test_job(run_id: str) -> None:
 
     except Exception:
         db.rollback()
+        terminal_status = "failed"
         try:
             run = db.get(TestRun, run_id)
             if run is not None:
-                run.status = "failed"
                 run.error = _truncate(traceback.format_exc(), 4000)
                 run.finished_at = _now()
                 db.commit()
         except Exception:
             pass
     finally:
-        # Close the browser, collect the recorded session video, and persist it.
+        # Close the browser and collect the recorded session video.
         video_bytes = None
         if browser is not None:
             try:
                 video_bytes = browser.close_and_get_video()
             except Exception:
                 video_bytes = None
-        if video_bytes:
-            try:
-                db.rollback()
-                run_row = db.get(TestRun, run_id)
-                if run_row is not None:
+
+        # Store the video and the terminal status together, so the run only
+        # looks finished once its recording is actually retrievable.
+        try:
+            db.rollback()
+            run_row = db.get(TestRun, run_id)
+            if run_row is not None:
+                if video_bytes:
                     run_row.video = video_bytes
                     run_row.has_video = True
-                    db.commit()
-            except Exception:
-                db.rollback()
+                run_row.status = terminal_status
+                if run_row.finished_at is None:
+                    run_row.finished_at = _now()
+                db.commit()
+        except Exception:
+            db.rollback()
+
         RUN_SECRETS.pop(run_id, None)
         LIVE_FRAMES.pop(run_id, None)
         RUN_PLANS.pop(run_id, None)

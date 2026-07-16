@@ -50,7 +50,12 @@ pip install -r requirements.txt
 playwright install chromium
 
 copy .env.example .env
-# → open .env and paste your ANTHROPIC_API_KEY (and adjust DATABASE_URL if needed)
+# → open .env and set:
+#     ANTHROPIC_API_KEY   your key
+#     APP_SECRET_KEY      any long random string; encrypts saved credentials.
+#                         Generate one with:
+#                           python -c "import secrets; print(secrets.token_urlsafe(32))"
+#     DATABASE_URL        adjust if your Postgres differs
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -78,12 +83,31 @@ Open http://localhost:5173
 
 ## 4. Use it
 
-1. Enter a target URL (defaults to `https://automationexercise.com/`, a safe practice site).
-2. Optionally set goals, max steps, and auth.
-3. Click **Run test**. Select the run to watch it work across five tabs:
-   **Findings**, **Activity** (agent step log), **Live Preview** (the headless
-   browser streamed frame-by-frame), **Summary** (final report), and
-   **Total Cost** (token usage and an approximate USD cost).
+The app has two screens:
+
+- **Dashboard** — a static overview of platform health and recent agent activity.
+  Nothing here is wired to live telemetry yet.
+- **Projects** — the real workflow.
+
+1. Go to **Projects** and click **Add Project**. Give it a name, the application
+   URL, optional goals, a step budget, a model, and an authentication type.
+2. Click **Run Test** on any row. The agent starts immediately and the row's
+   status tracks it.
+3. Use **View** (the eye icon) to open a project and inspect its latest run
+   across five tabs: **Findings**, **Activity** (agent step log), **Live
+   Preview** (the headless browser streamed frame-by-frame while running, and
+   the recorded session afterwards), **Summary** (final report), and **Total
+   Cost** (token usage and an approximate USD cost).
+4. **Edit** changes a project's configuration; **Delete** removes it along with
+   its run, findings, and recording.
+
+Two things to know about runs:
+
+- A project keeps **only its latest run**. Starting a new test discards the
+  previous result and its recording, which keeps storage flat — each recording
+  is several megabytes.
+- A project can only have one test running at a time. Starting a second is
+  rejected until the first finishes or is stopped.
 
 The agent navigates, clicks, fills forms, checks console/network errors, tests
 responsive layouts, and records each defect as a finding with severity, repro
@@ -97,12 +121,16 @@ messages) — the same units shown in the Activity tab.
 ## How it works
 
 ```
-React UI  ──POST /api/runs──▶  FastAPI  ──spawns thread──▶  Agent loop
-   ▲                                                          │
-   │  polls /runs, /findings, /steps                          │ tool calls
-   │                                                          ▼
-Postgres  ◀── findings / steps / summary ──  Opus 4.8  ⇄  Playwright (Chromium)
+React UI ──POST /api/projects/{id}/runs──▶ FastAPI ──spawns thread──▶ Agent loop
+   ▲                                          │                         │
+   │  polls /runs, /findings, /steps          │ decrypts credentials    │ tool calls
+   │                                          ▼                         ▼
+Postgres ◀── findings / steps / summary ── in-memory secrets ──  Claude  ⇄  Playwright
 ```
+
+A **project** stores the configuration; a **run** is one execution of it. Runs
+are always started from a project, which is what keeps credentials encrypted at
+rest — there is no endpoint that accepts a raw password.
 
 The agent loop (`backend/app/agent/runner.py`) sends the goal + tool definitions
 to Opus, executes each tool call against a Playwright browser
@@ -113,15 +141,21 @@ Findings and step logs are written to Postgres so the UI can show live progress.
 
 - The agent uses fake test data and avoids destructive actions, but only test
   sites you own or are authorized to test.
-- Passwords you enter are kept **in memory only** for the duration of a run —
-  they are never written to the database.
+- A project's password and TOTP secret are **encrypted at rest** (Fernet, keyed
+  by `APP_SECRET_KEY`) so a saved project can be re-run without retyping them.
+  They are decrypted only in memory, at the moment a run starts, and the API
+  never returns them — it reports only whether a credential is on file.
+- Keep `APP_SECRET_KEY` stable and out of version control. Changing it leaves
+  the projects intact but makes saved credentials unreadable, so they have to be
+  re-entered.
 - Set `QA_HEADLESS=false` in `.env` to watch the browser work in real time.
 - Each run costs Anthropic API tokens (large snapshots → non-trivial). Start with
   a modest `max_steps` while testing.
 
 ## Next steps (extend it)
 
+- Wire the Dashboard to real telemetry instead of static values
+- Build the Settings screen and real sign-in (both are inert placeholders today)
 - HTML/PDF report export per run
-- Playwright tracing + video capture
-- More auth types (OAuth/SSO via stored session, 2FA via TOTP)
-- Multi-user accounts, a job queue, and scheduled runs
+- Scheduled runs, and a job queue so runs survive a backend restart
+- Multi-user accounts and per-user project ownership

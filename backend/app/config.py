@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 # Load backend/.env before anything else reads the environment.
 load_dotenv()
 
+# --- Secrets ---
+# Key used to encrypt project credentials at rest (see app/crypto.py). Any
+# passphrase works; it is stretched to a Fernet key. Changing it makes existing
+# stored credentials unreadable.
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "")
+
 # --- Anthropic ---
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Opus 4.8 is the strongest agentic model. Override with QA_MODEL if needed.
