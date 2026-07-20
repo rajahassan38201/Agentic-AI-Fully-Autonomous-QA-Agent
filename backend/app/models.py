@@ -1,4 +1,4 @@
-"""Database models: Project, TestRun, Finding, Step."""
+"""Database models: Project, TestRun, Finding, Step, RecordedStep."""
 import uuid
 from datetime import datetime, timezone
 
@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -48,6 +49,11 @@ class Project(Base):
     password_encrypted = Column(Text, nullable=True)
     secret_key_encrypted = Column(Text, nullable=True)
 
+    # Cumulative USD saved by AI-free / hybrid replays of this project's tests.
+    # Accumulated as each replay finishes so it survives the "keep only the latest
+    # run" storage policy — individual replay runs get pruned, this total does not.
+    total_cost_saved = Column(Float, nullable=False, default=0.0)
+
     created_at = Column(DateTime(timezone=True), default=_now)
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
@@ -75,6 +81,10 @@ class TestRun(Base):
     findings_count = Column(Integer, nullable=False, default=0)
     config = Column(JSONB, nullable=True)
 
+    # USD this run saved versus its recorded source run. Only meaningful for
+    # replay runs (0 for a normal AI run, which has no source to compare against).
+    cost_saved = Column(Float, nullable=False, default=0.0)
+
     # Token usage accumulated across every Claude API call in the run.
     input_tokens = Column(Integer, nullable=False, default=0)
     output_tokens = Column(Integer, nullable=False, default=0)
@@ -94,6 +104,12 @@ class TestRun(Base):
     project = relationship("Project", back_populates="runs")
     findings = relationship("Finding", back_populates="run", cascade="all, delete-orphan")
     steps = relationship("Step", back_populates="run", cascade="all, delete-orphan")
+    recorded_steps = relationship(
+        "RecordedStep",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="RecordedStep.index",
+    )
 
     @property
     def total_tokens(self) -> int:
@@ -150,3 +166,47 @@ class Step(Base):
     created_at = Column(DateTime(timezone=True), default=_now)
 
     run = relationship("TestRun", back_populates="steps")
+
+
+class RecordedStep(Base):
+    """A replayable record of one agent tool call (the "cassette").
+
+    Written alongside the human-readable ``Step`` during a normal AI run, but with
+    full fidelity for deterministic replay: the untruncated tool input, a stable
+    locator for the element the step acted on (so the ephemeral ``eN`` ref can be
+    re-resolved on a rerun), a page fingerprint taken before the action (to detect
+    drift), and a lightweight post-action assertion (what the action produced).
+
+    This table is the foundation of AI-free replay: a later replay engine reads
+    these rows and drives the browser directly, never calling the model unless the
+    page has drifted from the recorded fingerprint.
+    """
+
+    __tablename__ = "recorded_steps"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    run_id = Column(String, ForeignKey("test_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    index = Column(Integer, nullable=False, default=0)
+    tool_name = Column(String, nullable=False)
+
+    # Full, untruncated tool input — the exact arguments the model passed.
+    tool_input = Column(JSONB, nullable=True)
+
+    # Durable descriptor of the element `tool_input.ref` pointed at, captured
+    # before the action ran (testid/id/name/role/label/text/css). Null for tools
+    # that do not act on an element (navigate, snapshot, test_plan, ...).
+    stable_locator = Column(JSONB, nullable=True)
+
+    # Page fingerprint (path + visible-control census + form signatures) captured
+    # before the action. Replay compares the live page against this to decide
+    # whether the recorded step is still valid or the app has drifted.
+    fingerprint = Column(JSONB, nullable=True)
+
+    # What the action produced, captured right after it ran: resulting URL plus
+    # the acted element's observable state (value/checked/invalid/validation).
+    post_assertion = Column(JSONB, nullable=True)
+
+    is_error = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=_now)
+
+    run = relationship("TestRun", back_populates="recorded_steps")

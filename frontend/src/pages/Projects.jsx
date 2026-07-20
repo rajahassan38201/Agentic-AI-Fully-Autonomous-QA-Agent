@@ -28,6 +28,14 @@ function shortUrl(url) {
   return url.replace(/^https?:\/\//i, '').replace(/\/$/, '')
 }
 
+// Cumulative replay savings. Sub-cent amounts get more precision so early
+// savings don't all read as "$0.00".
+function fmtSaved(value) {
+  const n = Number(value) || 0
+  if (n <= 0) return '—'
+  return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`
+}
+
 export default function Projects() {
   const navigate = useNavigate()
   const [projects, setProjects] = useState([])
@@ -172,6 +180,7 @@ export default function Projects() {
                 <th scope="col">Application URL</th>
                 <th scope="col">Status</th>
                 <th scope="col">Created</th>
+                <th scope="col" className="col-center">Saved by replay</th>
                 <th scope="col" className="col-center">Run Test</th>
                 <th scope="col" className="col-center">Actions</th>
               </tr>
@@ -200,6 +209,14 @@ export default function Projects() {
                       <StatusBadge status={p.last_run_status} />
                     </td>
                     <td className="cell-date">{fmtDate(p.created_at)}</td>
+                    <td className="col-center">
+                      <span
+                        className={p.total_cost_saved > 0 ? 'cell-saved' : 'muted'}
+                        title="Cumulative USD saved by replaying this project's tests instead of re-running the AI"
+                      >
+                        {fmtSaved(p.total_cost_saved)}
+                      </span>
+                    </td>
                     <td className="col-center">
                       <button
                         type="button"

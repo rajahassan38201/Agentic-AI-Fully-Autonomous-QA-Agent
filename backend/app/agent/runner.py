@@ -9,6 +9,7 @@ from anthropic import Anthropic
 from .. import config
 from ..database import SessionLocal
 from ..models import Finding, Step, TestRun
+from . import recording, replay
 from .browser_tools import TOOLS, BrowserSession
 from .prompts import SYSTEM_PROMPT
 from .totp import generate_totp
@@ -389,6 +390,31 @@ def run_test_job(run_id: str) -> None:
         browser = BrowserSession(run_id, http_credentials=http_credentials, viewport=viewport)
         _capture_frame(browser, run_id)
 
+        # --- Replay mode: re-run a prior cassette with NO model calls ---------
+        # The lifecycle above (browser, viewport, auth) and the `finally` below
+        # (video, terminal status, cleanup) are shared with the AI path; only the
+        # driving loop differs. Returning here runs `finally` and finalizes cleanly.
+        if cfg.get("mode") == "replay":
+            source_run_id = cfg.get("source_run_id")
+            if not source_run_id:
+                terminal_status = "failed"
+                run.error = "Replay mode requires config.source_run_id."
+                run.finished_at = _now()
+                db.commit()
+                return
+            plans = RUN_PLANS.setdefault(run_id, {})
+            summary, _counts = replay.run_replay(
+                run, source_run_id, browser, db,
+                secrets=secrets, plans=plans, capture_frame=_capture_frame,
+                stop_requested=lambda: run_id in STOP_REQUESTS,
+            )
+            terminal_status = "stopped" if run_id in STOP_REQUESTS else "completed"
+            # run.steps_count is maintained inside run_replay as it writes Steps.
+            run.summary = summary + _coverage_appendix(run_id)
+            run.finished_at = _now()
+            db.commit()
+            return
+
         messages = [{"role": "user", "content": _build_task(run, secrets)}]
         # `max_steps` is the budget of individual steps (tool calls + narration
         # messages) — the same units shown in the UI's Activity log. Each agent
@@ -468,7 +494,17 @@ def run_test_job(run_id: str) -> None:
             for block in response.content:
                 if block.type != "tool_use":
                     continue
-                content, is_error = _dispatch(block.name, block.input or {}, browser, db, run, secrets)
+                tool_input = block.input or {}
+
+                # Capture the replay locator + page fingerprint BEFORE the action
+                # runs — an action that navigates removes the ref's tag. Records to
+                # the cassette after; both are best-effort and cannot affect the run.
+                pre = recording.capture_pre(browser, block.name, tool_input)
+                content, is_error = _dispatch(block.name, tool_input, browser, db, run, secrets)
+                post = recording.capture_post(browser, block.name, tool_input)
+                recording.save_recorded_step(
+                    run.id, step_index, block.name, tool_input, pre, post, is_error
+                )
 
                 # Refresh the live-preview frame after each browser action.
                 _capture_frame(browser, run_id)
@@ -477,7 +513,7 @@ def run_test_job(run_id: str) -> None:
                     run_id=run.id,
                     index=step_index,
                     tool_name=block.name,
-                    tool_input=_truncate(json.dumps(block.input or {}), 600),
+                    tool_input=_truncate(json.dumps(tool_input), 600),
                     result_summary=_summarize(content),
                     is_error=is_error,
                 ))

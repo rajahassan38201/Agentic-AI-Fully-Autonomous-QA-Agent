@@ -60,6 +60,13 @@ export async function runProjectTest(id) {
   return jsonOrThrow(await fetch(`${API}/projects/${id}/runs`, { method: 'POST' }))
 }
 
+// Re-run the project's last recorded test from its cassette (Phase 2/3 replay).
+// Deterministic replay spends ~$0; `options.ai_fallback` lets the model self-heal
+// drifted steps within a bounded budget.
+export async function replayProjectTest(id, options = {}) {
+  return send(`/projects/${id}/runs/replay`, 'POST', options)
+}
+
 // --- Runs ---
 
 export async function getRun(id) {

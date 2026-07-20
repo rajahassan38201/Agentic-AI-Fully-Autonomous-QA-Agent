@@ -39,11 +39,26 @@ class ProjectOut(ProjectBase):
     last_run_status: Optional[str] = None
     last_run_at: Optional[datetime] = None
     runs_count: int = 0
+    total_cost_saved: float = 0.0
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
     class Config:
         from_attributes = True
+
+
+class ReplayOptions(BaseModel):
+    """Per-replay knobs from the UI. All optional — defaults reproduce the
+    hybrid (self-healing) behaviour."""
+
+    # When False, replay is strictly deterministic: drifted steps are reported and
+    # skipped, never handed to the model. Guarantees a $0 rerun.
+    ai_fallback: bool = True
+    # Max model steps a single drifted step may spend self-healing.
+    max_heal_steps: int = Field(default=15, ge=1, le=100)
+    # Run-wide ceiling on AI heal steps, so a badly-drifted app cannot cost a full
+    # run. 0 effectively disables healing regardless of ai_fallback.
+    max_heal_total_steps: int = Field(default=60, ge=0, le=2000)
 
 
 class RunOut(BaseModel):
@@ -63,6 +78,7 @@ class RunOut(BaseModel):
     cache_write_tokens: int = 0
     total_tokens: int = 0
     cost_usd: float = 0.0
+    cost_saved: float = 0.0
     has_video: bool = False
     created_at: Optional[datetime]
     started_at: Optional[datetime]

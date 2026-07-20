@@ -81,6 +81,7 @@ export default function RunDetail({ runId }) {
   if (!run) return <div className="empty">Loading…</div>
 
   const running = run.status === 'pending' || run.status === 'running'
+  const isReplay = run.config?.mode === 'replay'
   const model = (run.config && run.config.model) || 'the configured model'
   const counts = SEVERITY_ORDER.map((sev) => ({
     sev,
@@ -120,6 +121,14 @@ export default function RunDetail({ runId }) {
           <h2>{run.target_url}</h2>
           <div className="detail-sub">
             <StatusBadge status={run.status} />
+            {isReplay && (
+              <span
+                className="sev-tag sev-info"
+                title="Re-ran a recorded cassette. No AI tokens are spent unless a drifted step needs the model to self-heal."
+              >
+                Replay · No AI
+              </span>
+            )}
             {running && <span className="spinner" />}
             <span className="muted">
               {run.steps_count} steps · {findings.length} findings · {fmtCost(run.cost_usd)}
@@ -260,9 +269,19 @@ export default function RunDetail({ runId }) {
       {tab === 'cost' && (
         <div className="cost">
           <div className="cost-hero">
-            <div className="cost-label">Approximate total cost</div>
+            <div className="cost-label">
+              {isReplay ? 'Replay cost (AI-free rerun)' : 'Approximate total cost'}
+            </div>
             <div className="cost-amount">{fmtCost(run.cost_usd)}</div>
-            <div className="cost-sub">{running ? 'accumulating…' : 'final'} · {model}</div>
+            <div className="cost-sub">
+              {running ? 'accumulating…' : 'final'}
+              {isReplay ? ' · replayed recorded steps, no model calls' : ` · ${model}`}
+            </div>
+            {isReplay && run.cost_saved > 0 && (
+              <div className="cost-saved-note">
+                Saved {fmtCost(run.cost_saved)} vs. re-running the AI test
+              </div>
+            )}
           </div>
 
           <div className="cost-grid">

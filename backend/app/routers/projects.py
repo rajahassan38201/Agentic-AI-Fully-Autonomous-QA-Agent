@@ -10,7 +10,7 @@ from .. import crypto, schemas
 from ..agent.runner import LIVE_FRAMES, RUN_SECRETS, STOP_REQUESTS, run_test_job
 from ..config import ALLOWED_MODELS, MODEL as DEFAULT_MODEL
 from ..database import SessionLocal
-from ..models import Project, TestRun
+from ..models import Project, RecordedStep, TestRun
 
 router = APIRouter(prefix="/api")
 
@@ -71,6 +71,7 @@ def _with_run_info(db: Session, projects: Iterable[Project]) -> list[dict]:
                 "last_run_status": status,
                 "last_run_at": created_at,
                 "runs_count": counts.get(p.id, 0),
+                "total_cost_saved": p.total_cost_saved or 0.0,
                 "created_at": p.created_at,
                 "updated_at": p.updated_at,
             }
@@ -248,6 +249,113 @@ def start_project_run(project_id: str, db: Session = Depends(get_db)):
 
     # Decrypt straight into the worker's in-memory secret store. Plaintext
     # credentials exist only here and in the agent thread — never on disk.
+    RUN_SECRETS[run_id] = {
+        "auth_type": project.auth_type,
+        "username": project.username,
+        "password": crypto.decrypt(project.password_encrypted),
+        "secret_key": crypto.decrypt(project.secret_key_encrypted),
+        "login_instructions": project.login_instructions,
+    }
+
+    threading.Thread(target=run_test_job, args=(run_id,), daemon=True).start()
+    return run
+
+
+def _latest_cassette_run(db: Session, project_id: str) -> TestRun | None:
+    """Most recent run of this project that recorded a replayable cassette.
+
+    Replay runs write no RecordedStep rows, so this naturally resolves to the last
+    AI run — the one whose steps we want to re-execute for free.
+    """
+    return (
+        db.query(TestRun)
+        .join(RecordedStep, RecordedStep.run_id == TestRun.id)
+        .filter(TestRun.project_id == project_id)
+        .order_by(TestRun.created_at.desc())
+        .first()
+    )
+
+
+@router.post("/projects/{project_id}/runs/replay", response_model=schemas.RunOut, status_code=201)
+def replay_project_run(
+    project_id: str,
+    options: schemas.ReplayOptions = schemas.ReplayOptions(),
+    db: Session = Depends(get_db),
+):
+    """Re-run the project's last recorded test from its cassette.
+
+    Deterministic replay spends zero tokens; drifted steps are self-healed by the
+    model only when ``options.ai_fallback`` is on, within a bounded budget. The
+    source AI run is preserved (its cassette is the input); only prior replay runs
+    are discarded to keep storage flat.
+    """
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    active = (
+        db.query(TestRun)
+        .filter(TestRun.project_id == project_id, TestRun.status.in_(ACTIVE_STATUSES))
+        .first()
+    )
+    if active is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This project already has a test running. Stop it before starting another.",
+        )
+
+    source = _latest_cassette_run(db, project_id)
+    if source is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No recorded run to replay yet. Run a normal test first to record a cassette.",
+        )
+
+    # Discard previous replay runs only — never the source AI run whose cassette we
+    # are about to replay.
+    prior_replays = (
+        db.query(TestRun)
+        .filter(
+            TestRun.project_id == project_id,
+            TestRun.config["mode"].astext == "replay",
+        )
+        .all()
+    )
+    for old in prior_replays:
+        db.delete(old)
+        LIVE_FRAMES.pop(old.id, None)
+        STOP_REQUESTS.discard(old.id)
+        RUN_SECRETS.pop(old.id, None)
+    if prior_replays:
+        db.flush()
+
+    run_id = str(uuid.uuid4())
+    run = TestRun(
+        id=run_id,
+        project_id=project.id,
+        target_url=project.target_url,
+        goals=project.goals,
+        status="pending",
+        config={
+            "mode": "replay",
+            "source_run_id": source.id,
+            "max_steps": project.max_steps,
+            "viewport_width": None,
+            "viewport_height": None,
+            "auth_type": project.auth_type,
+            "model": project.model,  # kept for schema parity; cost will be ~$0
+            "project_name": project.name,
+            # Phase 3 self-heal knobs from the UI.
+            "ai_fallback": options.ai_fallback,
+            "max_heal_steps": options.max_heal_steps,
+            "max_heal_total_steps": options.max_heal_total_steps,
+        },
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    # Replay may still need live secrets (MFA code regeneration, HTTP-basic auth).
     RUN_SECRETS[run_id] = {
         "auth_type": project.auth_type,
         "username": project.username,

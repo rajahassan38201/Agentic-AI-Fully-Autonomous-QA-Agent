@@ -415,6 +415,161 @@ LAYOUT_JS = r"""
 }
 """
 
+# --- Replay recording (Phase 1) --------------------------------------------
+# These run ONLY when recording a step for the replay cassette. They are never
+# part of what the model sees, so they add no tokens to a snapshot.
+
+# Build a durable descriptor for the element currently tagged with `ref`. The eN
+# ref itself is worthless on a rerun (re-assigned every snapshot); this captures
+# the stable identity the replay engine uses to re-find the element next time.
+LOCATOR_JS = r"""
+(ref) => {
+  const el = document.querySelector('[data-qa-ref="' + ref + '"]');
+  if (!el) return null;
+  const txt = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const a = (n) => el.getAttribute(n) || null;
+
+  // A structural fallback for elements with no stable attribute of their own.
+  function cssPath(node) {
+    const parts = [];
+    while (node && node.nodeType === 1 && parts.length < 6) {
+      let sel = node.tagName.toLowerCase();
+      if (node.id) { parts.unshift(sel + '#' + CSS.escape(node.id)); break; }
+      const parent = node.parentElement;
+      if (parent) {
+        const sibs = Array.from(parent.children).filter((c) => c.tagName === node.tagName);
+        if (sibs.length > 1) sel += ':nth-of-type(' + (sibs.indexOf(node) + 1) + ')';
+      }
+      parts.unshift(sel);
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  }
+
+  return {
+    tag: el.tagName.toLowerCase(),
+    testid: a('data-testid') || a('data-test') || a('data-cy'),
+    elem_id: el.id || null,
+    name: a('name'),
+    type: a('type'),
+    role: a('role'),
+    aria_label: a('aria-label'),
+    placeholder: a('placeholder'),
+    href: a('href') ? a('href').slice(0, 200) : null,
+    text: txt(el.innerText).slice(0, 80) || null,
+    css: cssPath(el)
+  };
+}
+"""
+
+# A compact page fingerprint: path + visible interactive-control census + form
+# signatures. Cheap to compute and stable across cosmetic churn, so the replay
+# engine can tell "same page, safe to replay" from "the app changed here".
+FINGERPRINT_JS = r"""
+() => {
+  const SEL = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=tab],[role=checkbox],[role=radio],[role=combobox]';
+  const counts = {};
+  document.querySelectorAll(SEL).forEach((el) => {
+    const st = window.getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    if (st.display === 'none' || st.visibility === 'hidden' || r.width === 0 || r.height === 0) return;
+    const tag = el.tagName.toLowerCase();
+    const k = tag === 'input' ? 'input:' + (el.getAttribute('type') || 'text') : tag;
+    counts[k] = (counts[k] || 0) + 1;
+  });
+  const forms = Array.from(document.querySelectorAll('form')).slice(0, 12).map((f) =>
+    (f.getAttribute('name') || f.getAttribute('id') || '') + ':' +
+    f.querySelectorAll('input,select,textarea').length);
+  return { path: location.pathname, counts: counts, forms: forms.sort() };
+}
+"""
+
+# Re-find a recorded element on replay from its durable descriptor and tag it with
+# a fresh ref, so every existing action method (which addresses elements by ref)
+# works unchanged. Tries strategies strongest-first; returns which one matched and
+# how many candidates it saw, so the replay engine can gauge confidence.
+RESOLVE_JS = r"""
+(args) => {
+  const loc = args.loc, ref = args.ref;
+  if (!loc) return null;
+  const esc = (s) => { try { return CSS.escape(s); } catch (e) { return s; } };
+  const vis = (el) => {
+    if (!el || el.nodeType !== 1) return false;
+    const st = window.getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+  };
+  const visibleAll = (sel) => {
+    let list;
+    try { list = document.querySelectorAll(sel); } catch (e) { return []; }
+    return Array.from(list).filter(vis);
+  };
+
+  // Strong, attribute-based strategies first — these survive layout churn.
+  const strong = [];
+  if (loc.testid) strong.push(['testid',
+    '[data-testid="' + esc(loc.testid) + '"],[data-test="' + esc(loc.testid) + '"],[data-cy="' + esc(loc.testid) + '"]']);
+  if (loc.elem_id) strong.push(['id', '#' + esc(loc.elem_id)]);
+  if (loc.name) strong.push(['name', (loc.tag || '*') + '[name="' + esc(loc.name) + '"]']);
+
+  let chosen = null, how = null, count = 0;
+  for (const [name, sel] of strong) {
+    const m = visibleAll(sel);
+    if (m.length >= 1) { chosen = m[0]; how = name; count = m.length; break; }
+  }
+
+  // role + accessible name.
+  if (!chosen && loc.aria_label) {
+    const m = visibleAll('*').filter((el) =>
+      (el.getAttribute('aria-label') || '') === loc.aria_label &&
+      (!loc.role || el.getAttribute('role') === loc.role));
+    if (m.length) { chosen = m[0]; how = 'aria'; count = m.length; }
+  }
+
+  // Structural path fallback.
+  if (!chosen && loc.css) {
+    const m = visibleAll(loc.css);
+    if (m.length) { chosen = m[0]; how = 'css'; count = m.length; }
+  }
+
+  // Visible-text match, scoped to the recorded tag — weakest, most brittle.
+  if (!chosen && loc.text) {
+    const m = visibleAll(loc.tag || '*').filter((el) =>
+      (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80) === loc.text);
+    if (m.length) { chosen = m[0]; how = 'text'; count = m.length; }
+  }
+
+  if (!chosen) return null;
+  // Clear any stale generation, then tag the resolved element with the given ref.
+  const prev = document.querySelector('[data-qa-ref="' + ref + '"]');
+  if (prev) prev.removeAttribute('data-qa-ref');
+  chosen.setAttribute('data-qa-ref', ref);
+  return { ref: ref, strategy: how, count: count };
+}
+"""
+
+# Read the acted element's observable state immediately after the action. The ref
+# tag is still on the element unless the action navigated away; when it is gone we
+# still record the resulting URL, which is itself the assertion for a navigation.
+POST_STATE_JS = r"""
+(ref) => {
+  const url = location.href;
+  const el = ref ? document.querySelector('[data-qa-ref="' + ref + '"]') : null;
+  if (!el) return { url: url, element: null };
+  const txt = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const r = {};
+  const type = el.getAttribute('type') || '';
+  if (type === 'checkbox' || type === 'radio') r.checked = !!el.checked;
+  else if (el.value !== undefined && type !== 'password') r.value = String(el.value).slice(0, 120);
+  if (el.getAttribute('aria-invalid') === 'true') r.invalid = true;
+  if (typeof el.validationMessage === 'string' && el.validationMessage) {
+    r.validation = txt(el.validationMessage).slice(0, 120);
+  }
+  if (el.hasAttribute('aria-expanded')) r.expanded = el.getAttribute('aria-expanded');
+  return { url: url, element: r };
+}
+"""
+
 
 class BrowserSession:
     def __init__(self, run_id, http_credentials=None, viewport=None):
@@ -547,6 +702,52 @@ class BrowserSession:
         if self.frame is not None:
             data["current_frame"] = self.frame.url[:120]
         return json.dumps(data)
+
+    # --- replay recording (Phase 1) --------------------------------------
+    # Best-effort capture helpers for the replay cassette. Every one returns None
+    # on any failure and must never raise into the agent loop — recording a step
+    # is never allowed to affect the live run it is observing.
+    def locator_for(self, ref):
+        """Durable descriptor of the element `ref` points at, or None.
+
+        Must be called BEFORE the action runs, while the ref's data-qa-ref tag is
+        still on the element (an action that navigates removes it)."""
+        if not ref:
+            return None
+        try:
+            return self._t().evaluate(LOCATOR_JS, ref)
+        except Exception:
+            return None
+
+    def fingerprint(self):
+        """Compact page fingerprint used to detect drift on replay, or None."""
+        try:
+            return self._t().evaluate(FINGERPRINT_JS)
+        except Exception:
+            return None
+
+    def post_state(self, ref):
+        """Resulting URL + acted-element state, captured after the action, or None."""
+        try:
+            return self._t().evaluate(POST_STATE_JS, ref or "")
+        except Exception:
+            return None
+
+    def resolve_locator(self, loc):
+        """Re-find a recorded element on replay and tag it with a fresh ref.
+
+        Returns {ref, strategy, count} on success (ref is a freshly-assigned
+        data-qa-ref usable by any action method), or None if the element could not
+        be found — which is the replay engine's signal that the page has drifted.
+        """
+        if not loc:
+            return None
+        try:
+            self._replay_seq = getattr(self, "_replay_seq", 0) + 1
+            ref = f"r{self._replay_seq}"
+            return self._t().evaluate(RESOLVE_JS, {"loc": loc, "ref": ref})
+        except Exception:
+            return None
 
     # --- navigation ------------------------------------------------------
     def navigate(self, url):
