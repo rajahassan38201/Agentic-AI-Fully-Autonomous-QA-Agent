@@ -898,6 +898,26 @@ class BrowserSession:
         result = self._t().evaluate(script)
         return json.dumps(result, default=str)[:3000]
 
+    def evaluate_action(self, script):
+        """Run a state-CHANGING JS arrow function, then settle the page.
+
+        This is the universal fallback for any interaction the typed tools cannot
+        express. It differs from `evaluate` in two ways that matter:
+          - it settles for network afterwards, because it is expected to mutate
+            state (dispatch events, drive custom widgets) rather than just read;
+          - it is RECORDED and RE-RUN on replay (evaluate is treated as read-only
+            and skipped), so an interaction done through it survives a rerun.
+        The script must address elements by STABLE selectors (id/data-testid/name),
+        never by data-qa-ref — those tags do not exist on a replay.
+        """
+        result = self._t().evaluate(script)
+        self._settle(3000)
+        return json.dumps({
+            "result": result,
+            "url": self.page.url,
+            "note": "Custom action ran and the page settled. Call snapshot to verify the effect.",
+        }, default=str)[:3000]
+
     def describe(self, ref):
         return json.dumps(self._t().evaluate(DESCRIBE_JS, {"ref": ref}), default=str)[:3000]
 
@@ -1280,6 +1300,13 @@ TOOLS = [
         "description": "Run a JS arrow function in the page and return its JSON result. Your general-purpose assertion tool — use it to compute values the DOM implies but does not state: cart totals vs line items, result counts, sort order, whether a list is actually filtered. Example: '() => document.querySelectorAll(\".product\").length'.",
         "input_schema": _obj({
             "script": {"type": "string", "description": "A JS arrow function, e.g. '() => ({ w: document.body.scrollWidth })'."},
+        }, ["script"]),
+    },
+    {
+        "name": "evaluate_action",
+        "description": "Your UNIVERSAL FALLBACK for any interaction the typed tools above cannot perform — a missing tool is never an excuse to skip an interaction. Runs a JS arrow function that CHANGES page state: dispatch a synthetic event, drive a canvas / custom web-component / shadow-DOM control, open a widget that has no normal button, set a value the standard fill cannot reach, or call a page handler directly. This is DIFFERENT from `evaluate`: `evaluate` is read-only and is skipped on replay, while `evaluate_action` is recorded and RE-RUN on replay, so the interaction survives a rerun. RULES: address elements by STABLE selectors — id, [data-testid], [name] — NEVER by data-qa-ref (those tags do not exist on replay). Keep each action to one logical interaction, and return a short value describing what you did. Call snapshot afterwards to verify the effect. Reach for this the instant a control resists the normal tools — do not conclude a feature is untestable.",
+        "input_schema": _obj({
+            "script": {"type": "string", "description": "A JS arrow function that PERFORMS the interaction, e.g. '() => { const el = document.querySelector(\"#rating\"); el.value = 4; el.dispatchEvent(new Event(\"input\", {bubbles:true})); return el.value; }'."},
         }, ["script"]),
     },
     {

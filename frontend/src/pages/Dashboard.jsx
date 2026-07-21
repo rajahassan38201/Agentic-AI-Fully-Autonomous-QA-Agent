@@ -15,7 +15,7 @@ import {
 // yet. Every value is defined here so there is one place to replace when the
 // real telemetry endpoints exist.
 const SERVICES = [
-  { name: 'Database', detail: 'SQL Server', Icon: DatabaseIcon },
+  { name: 'Database', detail: 'PostgreSQL', Icon: DatabaseIcon },
   { name: 'Service Bus', detail: 'Azure Service Bus', Icon: SendIcon },
   { name: 'SignalR', detail: 'Real-time hub', Icon: BroadcastIcon },
   { name: 'gRPC', detail: 'Log streaming', Icon: BoltIcon, refresh: true },

@@ -36,7 +36,12 @@ _OBSERVE_TOOLS = {
 
 # Re-executed verbatim from the recorded input; no element to resolve.
 _NAV_TOOLS = {"navigate", "go_back", "go_forward", "reload"}
-_PAGELEVEL_TOOLS = {"handle_dialog", "switch_tab", "close_tab", "switch_frame", "set_viewport"}
+# evaluate_action is page-level on purpose: the interaction lives entirely in the
+# recorded JS (addressed by stable selectors, not the ephemeral eN ref), so replay
+# re-runs it verbatim. It is deliberately NOT in _OBSERVE_TOOLS — unlike `evaluate`,
+# it changes state and must actually run again on a rerun, never be skipped.
+_PAGELEVEL_TOOLS = {"handle_dialog", "switch_tab", "close_tab", "switch_frame",
+                    "set_viewport", "evaluate_action"}
 
 # Act on an element — require a resolved locator before they can run.
 _ELEMENT_TOOLS = {
@@ -175,6 +180,8 @@ def _execute(browser, tool_name, tool_input, ref):
         return browser.switch_frame(ti.get("index"), ti.get("name"))
     if tool_name == "set_viewport":
         return browser.set_viewport(ti.get("width"), ti.get("height"))
+    if tool_name == "evaluate_action":
+        return browser.evaluate_action(ti.get("script", ""))
     return "unhandled"
 
 

@@ -340,6 +340,8 @@ def _dispatch(name, tool_input, browser: BrowserSession, db, run: TestRun, secre
         # Assertions / diagnostics
         if name == "evaluate":
             return browser.evaluate(tool_input["script"]), False
+        if name == "evaluate_action":
+            return browser.evaluate_action(tool_input["script"]), False
         if name == "check_layout":
             return browser.check_layout(), False
         if name == "check_accessibility":
