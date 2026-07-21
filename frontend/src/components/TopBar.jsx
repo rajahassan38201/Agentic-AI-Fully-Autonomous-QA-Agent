@@ -22,7 +22,7 @@ function Wordmark() {
           <circle key={i} cx={cx} cy={cy} r="2.1" />
         ))}
       </svg>
-      <span className="brand-name">Irth</span>
+      <span className="brand-name">QA</span>
       <span className="brand-divider" aria-hidden="true" />
       <span className="brand-tagline">
         AI Agentic QA
