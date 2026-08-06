@@ -159,3 +159,4 @@ Findings and step logs are written to Postgres so the UI can show live progress.
 - HTML/PDF report export per run
 - Scheduled runs, and a job queue so runs survive a backend restart
 - Multi-user accounts and per-user project ownership
+Commit at 2026-08-06T10:19:52
