@@ -161,3 +161,4 @@ Findings and step logs are written to Postgres so the UI can show live progress.
 - Multi-user accounts and per-user project ownership
 Commit at 2026-08-06T10:19:52
 Commit at 2026-08-06T11:30:43
+Commit at 2026-08-07T09:24:26
