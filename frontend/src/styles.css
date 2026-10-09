@@ -1,8 +1,8 @@
 /* =========================================================================
    Irth — AI Agentic QA Platform
-   Tokens follow the product mocks: a cool near-white canvas, white cards on a
-   hairline blue-grey border, Irth blue for brand and links, and a deep navy
-   reserved for primary actions and the active nav item.
+   Tokens: a cool near-white canvas, white cards on a hairline blue-grey
+   border, violet for brand, links and primary actions, and a soft graphite
+   ink (violet-tinted greys) for text and dark surfaces.
    ========================================================================= */
 
 :root {
@@ -14,19 +14,22 @@
   --border-strong: #d5dde9;
 
   /* Ink */
-  --ink: #0e1b33;
-  --ink-2: #34435c;
-  --muted: #6b7a91;
-  --faint: #93a1b5;
+  --ink: #1d1b2c;
+  --ink-2: #3d3a4f;
+  --muted: #6e6a80;
+  --faint: #a19db0;
 
   /* Brand */
-  --brand: #1b7fc4;
-  --brand-strong: #1668b8;
-  --brand-soft: #e9f3fc;
+  --brand: #7c3aed;
+  --brand-strong: #6d28d9;
+  --brand-hover: #5b21b6;
+  --brand-soft: #f3effe;
+  --brand-tint: #e6dcfd;
+  --brand-on: #ddd6fe;
 
   /* Status */
-  --ok: #1668b8;
-  --ok-soft: #e8f2fc;
+  --ok: #6d28d9;
+  --ok-soft: #f3effe;
   --bad: #d92d3a;
   --bad-soft: #fdecee;
   --bad-line: #f7c9ce;
@@ -34,21 +37,21 @@
   --warn-soft: #fdf3e3;
   --live: #0e8a5f;
   --live-soft: #e6f6ef;
-  --neutral-soft: #eef1f6;
+  --neutral-soft: #f0eff5;
 
   /* Severity */
   --sev-critical: #b91c1c;
   --sev-high: #d92d3a;
   --sev-medium: #b45309;
-  --sev-low: #1668b8;
-  --sev-info: #64748b;
+  --sev-low: #6d28d9;
+  --sev-info: #6e6a80;
 
   /* Shape & depth */
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
-  --shadow-sm: 0 1px 2px rgba(14, 27, 51, 0.05);
-  --shadow-lg: 0 24px 60px rgba(14, 27, 51, 0.18);
+  --shadow-sm: 0 1px 2px rgba(29, 27, 44, 0.05);
+  --shadow-lg: 0 24px 60px rgba(29, 27, 44, 0.18);
 
   /* Frame */
   --nav-w: 248px;
@@ -193,8 +196,8 @@ svg {
 
 .nav-item-active,
 .nav-item-active:hover {
-  background: var(--ink);
-  color: #fff;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
 }
 
 .nav-item-inert,
@@ -241,13 +244,6 @@ svg {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: none;
-}
-
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  fill: var(--brand);
   flex: none;
 }
 
@@ -362,8 +358,8 @@ svg {
   height: 36px;
   flex: none;
   border-radius: var(--r-md);
-  background: #7ed957;
-  color: #0b2b12;
+  background: var(--brand-tint);
+  color: var(--brand-hover);
   font-size: 12.5px;
   font-weight: 700;
 }
@@ -551,7 +547,7 @@ svg {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #12599f;
+  background: var(--brand-hover);
 }
 
 .btn-quiet {
@@ -574,7 +570,7 @@ svg {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: #dbeafc;
+  background: var(--brand-tint);
 }
 
 .btn-danger {
@@ -586,17 +582,17 @@ svg {
   background: #b91c26;
 }
 
-/* The table's primary action: navy, compact, clearly the row's verb. */
+/* The table's primary action: violet, compact, clearly the row's verb. */
 .btn-run {
   height: 36px;
   padding: 0 18px;
-  background: var(--ink);
+  background: var(--brand);
   color: #fff;
   font-size: 13px;
 }
 
 .btn-run:hover:not(:disabled) {
-  background: #1b2c4d;
+  background: var(--brand-strong);
 }
 
 .icon-btn {
@@ -707,7 +703,7 @@ svg {
 
 .status-neutral {
   background: var(--neutral-soft);
-  color: #55637a;
+  color: #5a576d;
 }
 
 .pill {
@@ -1054,7 +1050,7 @@ svg {
 }
 
 .table tbody tr:hover {
-  background: #fbfcfe;
+  background: #faf9fe;
 }
 
 .col-center {
@@ -1453,7 +1449,7 @@ svg {
   align-items: center;
   gap: 12px;
   padding: 48px 24px;
-  color: #b9c4d4;
+  color: #b4b0c4;
   text-align: center;
 }
 
@@ -1466,7 +1462,7 @@ svg {
   gap: 7px;
   padding: 5px 11px;
   border-radius: 999px;
-  background: rgba(14, 27, 51, 0.72);
+  background: rgba(29, 27, 44, 0.72);
   color: #fff;
   font-size: 11.5px;
   font-weight: 600;
@@ -1507,7 +1503,7 @@ svg {
   gap: 18px;
 }
 
-/* Same blue as the primary Run Test button, so the run's headline number and
+/* Same violet as the primary Run Test button, so the run's headline number and
    its headline action read as one family. */
 .cost-hero {
   padding: 26px;
@@ -1521,7 +1517,7 @@ svg {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #cfe4f7;
+  color: var(--brand-on);
 }
 
 .cost-amount {
@@ -1534,7 +1530,7 @@ svg {
 
 .cost-sub {
   font-size: 12.5px;
-  color: #cfe4f7;
+  color: var(--brand-on);
 }
 
 .cost-grid {
@@ -1566,7 +1562,7 @@ svg {
 
 .cost-cell-total {
   background: var(--brand-soft);
-  border-color: #cde4f8;
+  border-color: var(--brand-tint);
 }
 
 /* ---------- Modal ---------- */
@@ -1578,7 +1574,7 @@ svg {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(14, 27, 51, 0.42);
+  background: rgba(29, 27, 44, 0.42);
   backdrop-filter: blur(3px);
   animation: fade-in 140ms ease;
 }

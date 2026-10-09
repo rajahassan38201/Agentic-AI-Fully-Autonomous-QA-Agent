@@ -6,22 +6,12 @@ import { BellIcon, SearchIcon } from './Icons.jsx'
 const USER = {
   name: 'Hafiz Hassan (LPS Contractor)',
   role: 'Admin',
-  initials: 'MC',
+  initials: 'HH',
 }
 
 function Wordmark() {
   return (
     <div className="brand">
-      <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-        {[
-          [6, 6], [12, 4], [18, 6], [24, 9],
-          [4, 12], [10, 11], [16, 12], [22, 15],
-          [6, 18], [12, 17], [18, 19],
-          [8, 24], [14, 23],
-        ].map(([cx, cy], i) => (
-          <circle key={i} cx={cx} cy={cy} r="2.1" />
-        ))}
-      </svg>
       <span className="brand-name">QA</span>
       <span className="brand-divider" aria-hidden="true" />
       <span className="brand-tagline">
